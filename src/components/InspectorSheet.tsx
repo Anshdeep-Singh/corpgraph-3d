@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import { GraphNode, GraphLink, ForensicsReport } from '@/types/graph';
 import RiskBadge from './RiskBadge';
 import {
@@ -11,13 +11,16 @@ import {
   ShieldAlert,
   Brain,
   Sparkles,
-  ChevronUp,
-  ChevronDown,
   Layers,
   AlertTriangle,
   Flame,
   Globe,
-  Calendar,
+  ExternalLink,
+  Activity,
+  ShieldCheck,
+  Search,
+  Network,
+  TrendingUp,
   Info,
 } from 'lucide-react';
 
@@ -50,8 +53,21 @@ export default function InspectorSheet({
 
   if (!selectedNode) return null;
 
-  const nodeRiskScore = selectedNode.riskScore || (forensicsReport?.overallRiskScore ?? 0);
   const isFlagged = selectedNode.isFlagged || forensicsReport?.flaggedNodeIds.includes(selectedNode.id);
+
+  // Breakdown connection types
+  const parentLinks = connections.filter((c) => c.relationship === 'OWNED_BY');
+  const subLinks = connections.filter((c) => c.relationship === 'SUBSIDIARY_OF');
+  const investorLinks = connections.filter((c) => c.relationship === 'INVESTED_IN');
+
+  const getInfluenceLabel = () => {
+    const total = connections.length;
+    if (total >= 6) return { label: 'Primary Network Hub', color: 'text-blue-400 bg-blue-950/80 border-blue-800' };
+    if (total >= 3) return { label: 'Intermediate Node', color: 'text-indigo-400 bg-indigo-950/80 border-indigo-800' };
+    return { label: 'Branch Leaf Node', color: 'text-slate-400 bg-slate-800/80 border-slate-700' };
+  };
+
+  const influence = getInfluenceLabel();
 
   // Touch drag handlers for mobile bottom-sheet snap transitions
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -64,11 +80,9 @@ export default function InspectorSheet({
     const deltaY = startYRef.current - endY;
 
     if (deltaY > 50) {
-      // Swiped UP
       if (snapState === 'peak') setSnapState('half');
       else if (snapState === 'half') setSnapState('full');
     } else if (deltaY < -50) {
-      // Swiped DOWN
       if (snapState === 'full') setSnapState('half');
       else if (snapState === 'half') setSnapState('peak');
     }
@@ -86,6 +100,206 @@ export default function InspectorSheet({
         return 'h-[52vh]';
     }
   };
+
+  const renderOverviewContent = () => (
+    <div className="space-y-3.5 text-xs text-slate-300">
+      {/* 1. Quick Stats Grid (2x2) */}
+      <div className="grid grid-cols-2 gap-2">
+        <div className="p-3 bg-slate-800/50 border border-slate-800 rounded-2xl flex flex-col justify-between">
+          <div className="flex items-center space-x-1.5 text-slate-400 text-[10px] uppercase font-semibold">
+            <Building2 className="w-3.5 h-3.5 text-blue-400" />
+            <span>Classification</span>
+          </div>
+          <div className="mt-2 font-bold text-sm text-slate-100 capitalize">
+            {selectedNode.type}
+          </div>
+          <span className="text-[10px] text-slate-400 mt-0.5">Corporate Role</span>
+        </div>
+
+        <div className="p-3 bg-slate-800/50 border border-slate-800 rounded-2xl flex flex-col justify-between">
+          <div className="flex items-center space-x-1.5 text-slate-400 text-[10px] uppercase font-semibold">
+            <Network className="w-3.5 h-3.5 text-indigo-400" />
+            <span>Connections</span>
+          </div>
+          <div className="mt-2 font-bold text-sm text-slate-100">
+            {connections.length} <span className="text-xs font-normal text-slate-400">links</span>
+          </div>
+          <span className="text-[10px] text-slate-400 mt-0.5">Direct Graph Edges</span>
+        </div>
+
+        <div className="p-3 bg-slate-800/50 border border-slate-800 rounded-2xl flex flex-col justify-between">
+          <div className="flex items-center space-x-1.5 text-slate-400 text-[10px] uppercase font-semibold">
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Integrity Status</span>
+          </div>
+          <div className="mt-2">
+            {isFlagged ? (
+              <span className="text-xs font-bold text-red-400 flex items-center space-x-1">
+                <ShieldAlert className="w-3.5 h-3.5" />
+                <span>Flagged</span>
+              </span>
+            ) : (
+              <span className="text-xs font-bold text-emerald-400 flex items-center space-x-1">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                <span>Standard</span>
+              </span>
+            )}
+          </div>
+          <span className="text-[10px] text-slate-400 mt-0.5">Forensic Audit</span>
+        </div>
+
+        <div className="p-3 bg-slate-800/50 border border-slate-800 rounded-2xl flex flex-col justify-between">
+          <div className="flex items-center space-x-1.5 text-slate-400 text-[10px] uppercase font-semibold">
+            <TrendingUp className="w-3.5 h-3.5 text-amber-400" />
+            <span>Network Weight</span>
+          </div>
+          <div className="mt-2 font-bold text-sm text-amber-300">
+            {selectedNode.val || 4} <span className="text-[10px] font-normal text-slate-400">px radius</span>
+          </div>
+          <span className="text-[10px] text-slate-400 mt-0.5">3D Sphere Metric</span>
+        </div>
+      </div>
+
+      {/* 2. Influence & Centrality Badge Card */}
+      <div className="p-3 bg-slate-800/40 border border-slate-800 rounded-2xl space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            Network Centrality
+          </span>
+          <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${influence.color}`}>
+            {influence.label}
+          </span>
+        </div>
+
+        {/* Relationship Breakdown Mini Bar */}
+        {connections.length > 0 && (
+          <div className="space-y-1 pt-1">
+            <div className="flex justify-between text-[10px] text-slate-400">
+              <span>Parents ({parentLinks.length})</span>
+              <span>Subsidiaries ({subLinks.length})</span>
+              <span>Investors ({investorLinks.length})</span>
+            </div>
+            <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden flex">
+              {parentLinks.length > 0 && (
+                <div
+                  style={{ width: `${(parentLinks.length / connections.length) * 100}%` }}
+                  className="bg-amber-500 h-full"
+                />
+              )}
+              {subLinks.length > 0 && (
+                <div
+                  style={{ width: `${(subLinks.length / connections.length) * 100}%` }}
+                  className="bg-emerald-500 h-full"
+                />
+              )}
+              {investorLinks.length > 0 && (
+                <div
+                  style={{ width: `${(investorLinks.length / connections.length) * 100}%` }}
+                  className="bg-purple-500 h-full"
+                />
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 3. Entity Intelligence Description Card */}
+      <div className="space-y-1.5">
+        <label className="text-[10px] uppercase tracking-wider font-semibold text-slate-400 block">
+          Entity Intelligence Overview
+        </label>
+        <div className="p-3 bg-gradient-to-br from-slate-800/60 to-slate-900/60 border border-slate-800 rounded-2xl space-y-2">
+          <p className="text-slate-200 leading-relaxed text-xs">
+            {selectedNode.description ||
+              `${selectedNode.name} is a recorded corporate entity in global ownership knowledge graphs.`}
+          </p>
+
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            <span className="px-2 py-0.5 bg-slate-800 text-slate-300 rounded-md text-[10px] border border-slate-700">
+              Wikidata Recorded
+            </span>
+            <span className="px-2 py-0.5 bg-slate-800 text-slate-300 rounded-md text-[10px] border border-slate-700">
+              Expandable Branch
+            </span>
+            {selectedNode.country && (
+              <span className="px-2 py-0.5 bg-slate-800 text-slate-300 rounded-md text-[10px] border border-slate-700 flex items-center space-x-1">
+                <Globe className="w-3 h-3 text-blue-400" />
+                <span>{selectedNode.country}</span>
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* 4. AI Audit Callout Card */}
+      {forensicsReport ? (
+        <div className="p-3 bg-indigo-950/30 border border-indigo-800/50 rounded-2xl space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-indigo-300 flex items-center space-x-1">
+              <Brain className="w-3.5 h-3.5 text-indigo-400" />
+              <span>AI Forensic Audit Summary</span>
+            </span>
+            <RiskBadge
+              riskCategory={forensicsReport.riskCategory}
+              score={forensicsReport.overallRiskScore}
+              size="sm"
+            />
+          </div>
+          <p className="text-[11px] text-slate-300 leading-snug">{forensicsReport.summary}</p>
+        </div>
+      ) : (
+        <div className="p-3 bg-slate-800/40 border border-slate-800 rounded-2xl flex items-center justify-between">
+          <div className="space-y-0.5">
+            <p className="text-xs font-bold text-indigo-300 flex items-center space-x-1">
+              <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Run AI Forensic Analysis</span>
+            </p>
+            <p className="text-[10px] text-slate-400">Detect round-tripping & shell layering risks</p>
+          </div>
+          <button
+            onClick={onOpenAIForensics}
+            className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs rounded-xl shadow-md transition-colors"
+          >
+            Audit
+          </button>
+        </div>
+      )}
+
+      {/* 5. External Research Links */}
+      <div className="space-y-1 pt-1">
+        <label className="text-[10px] uppercase tracking-wider font-semibold text-slate-500 block">
+          External Intelligence Research
+        </label>
+        <div className="grid grid-cols-2 gap-2">
+          <a
+            href={`https://www.google.com/search?q=${encodeURIComponent(selectedNode.name)}+corporate+structure+subsidiaries`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="p-2 bg-slate-800/50 hover:bg-slate-700/60 rounded-xl border border-slate-800 flex items-center justify-between text-[11px] text-slate-300 transition-colors"
+          >
+            <span className="flex items-center space-x-1.5">
+              <Search className="w-3 h-3 text-blue-400" />
+              <span>Google Research</span>
+            </span>
+            <ExternalLink className="w-3 h-3 text-slate-500" />
+          </a>
+
+          <a
+            href={`https://en.wikipedia.org/wiki/Special:Search?search=${encodeURIComponent(selectedNode.name)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="p-2 bg-slate-800/50 hover:bg-slate-700/60 rounded-xl border border-slate-800 flex items-center justify-between text-[11px] text-slate-300 transition-colors"
+          >
+            <span className="flex items-center space-x-1.5">
+              <Globe className="w-3 h-3 text-emerald-400" />
+              <span>Wikipedia Entry</span>
+            </span>
+            <ExternalLink className="w-3 h-3 text-slate-500" />
+          </a>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <>
@@ -164,39 +378,14 @@ export default function InspectorSheet({
           </div>
 
           {/* Tab Content */}
-          {activeTab === 'overview' && (
-            <div className="space-y-3 text-xs text-slate-300">
-              <div>
-                <label className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">
-                  Description
-                </label>
-                <p className="mt-1 text-slate-300 leading-relaxed bg-slate-800/40 p-3 rounded-2xl border border-slate-800">
-                  {selectedNode.description || 'Public Corporate Entity.'}
-                </p>
-              </div>
-
-              {forensicsReport && (
-                <div className="p-3 bg-slate-800/50 border border-slate-700/80 rounded-2xl space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-semibold text-slate-400">Audit Risk Score</span>
-                    <RiskBadge
-                      riskCategory={forensicsReport.riskCategory}
-                      score={forensicsReport.overallRiskScore}
-                      size="sm"
-                    />
-                  </div>
-                  <p className="text-[11px] text-slate-300">{forensicsReport.summary}</p>
-                </div>
-              )}
-            </div>
-          )}
+          {activeTab === 'overview' && renderOverviewContent()}
 
           {activeTab === 'connections' && (
             <div className="space-y-2 text-xs">
-              <label className="text-[10px] uppercase tracking-wider font-semibold text-slate-500 block">
+              <label className="text-[10px] uppercase tracking-wider font-semibold text-slate-400 block">
                 Direct Graph Connections ({connections.length})
               </label>
-              <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
+              <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
                 {connections.map((link, idx) => {
                   const src =
                     typeof link.source === 'object' ? (link.source as any).id : link.source;
@@ -402,19 +591,7 @@ export default function InspectorSheet({
               </button>
             </div>
 
-            {activeTab === 'overview' && (
-              <div className="space-y-3 text-xs">
-                <p className="text-slate-300 leading-relaxed bg-slate-800/50 p-3 rounded-2xl">
-                  {selectedNode.description || 'Public Corporate Entity.'}
-                </p>
-                {forensicsReport && (
-                  <div className="p-3 bg-slate-800/60 rounded-2xl space-y-1">
-                    <span className="font-bold text-indigo-400 text-[11px]">AI Audit Summary</span>
-                    <p className="text-slate-300 text-[11px]">{forensicsReport.summary}</p>
-                  </div>
-                )}
-              </div>
-            )}
+            {activeTab === 'overview' && renderOverviewContent()}
 
             {activeTab === 'connections' && (
               <div className="space-y-2 text-xs">
