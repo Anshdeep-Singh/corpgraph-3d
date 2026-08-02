@@ -16,6 +16,13 @@ interface GraphViewer3DProps {
   activeCycleHighlight?: string[] | null;
 }
 
+const extractId = (val: any): string => {
+  if (typeof val === 'object' && val !== null && 'id' in val) {
+    return String(val.id);
+  }
+  return String(val);
+};
+
 export default function GraphViewer3D({
   data,
   onSelectNode,
@@ -27,13 +34,43 @@ export default function GraphViewer3D({
   const graphInstanceRef = useRef<any>(null);
   const [isolatedCycleMode, setIsolatedCycleMode] = useState(false);
 
-  // Determine active cycle node set
-  const cycleNodeIds = new Set<string>(
+  // Extract active cycle chain nodes
+  const activeCycleChain =
     activeCycleHighlight ||
-      forensicsReport?.activeCycleHighlight ||
-      forensicsReport?.circularInvestmentChains?.[0]?.chain ||
-      []
-  );
+    forensicsReport?.activeCycleHighlight ||
+    forensicsReport?.circularInvestmentChains?.[0]?.chain ||
+    [];
+
+  const cycleNodeIds = new Set<string>(activeCycleChain);
+
+  // Build edge keys for the cycle chain
+  const cycleEdgeKeys = new Set<string>();
+  if (activeCycleChain.length >= 2) {
+    for (let i = 0; i < activeCycleChain.length - 1; i++) {
+      const u = activeCycleChain[i];
+      const v = activeCycleChain[i + 1];
+      cycleEdgeKeys.add(`${u}->${v}`);
+      cycleEdgeKeys.add(`${v}->${u}`);
+    }
+    const first = activeCycleChain[0];
+    const last = activeCycleChain[activeCycleChain.length - 1];
+    cycleEdgeKeys.add(`${last}->${first}`);
+    cycleEdgeKeys.add(`${first}->${last}`);
+  }
+
+  const isCycleNode = (id: string) => cycleNodeIds.has(id);
+
+  const isCycleLink = (link: any) => {
+    const src = extractId(link.source);
+    const tgt = extractId(link.target);
+    if (cycleEdgeKeys.has(`${src}->${tgt}`) || cycleEdgeKeys.has(`${tgt}->${src}`)) {
+      return true;
+    }
+    if (link.isCycleEdge && cycleNodeIds.has(src) && cycleNodeIds.has(tgt)) {
+      return true;
+    }
+    return false;
+  };
 
   // Filter data if isolated cycle mode is toggled
   const activeGraphData: GraphData =
@@ -41,8 +78,8 @@ export default function GraphViewer3D({
       ? {
           nodes: data.nodes.filter((n) => cycleNodeIds.has(n.id)),
           links: data.links.filter((l) => {
-            const src = typeof l.source === 'object' ? (l.source as any).id : l.source;
-            const tgt = typeof l.target === 'object' ? (l.target as any).id : l.target;
+            const src = extractId(l.source);
+            const tgt = extractId(l.target);
             return cycleNodeIds.has(src) && cycleNodeIds.has(tgt);
           }),
           targetCompany: data.targetCompany,
@@ -58,18 +95,34 @@ export default function GraphViewer3D({
     const width = containerRef.current.clientWidth || window.innerWidth;
     const height = containerRef.current.clientHeight || window.innerHeight;
 
-    const isCycleNode = (id: string) => cycleNodeIds.has(id);
+    // Sanitize nodes & links to prevent d3 object-reference corruption across re-renders
+    const rootTargetName = data.targetCompany.name;
+    const sanitizedNodes = activeGraphData.nodes.map((n) => {
+      const copy: any = { ...n };
+      // FIX TARGET NODE (NVIDIA/Root Company) AT ORIGIN (0,0,0)
+      if (copy.type === 'target' || copy.id === rootTargetName || copy.name === rootTargetName) {
+        copy.fx = 0;
+        copy.fy = 0;
+        copy.fz = 0;
+      }
+      return copy;
+    });
 
-    const isCycleLink = (link: any) => {
-      const src = typeof link.source === 'object' ? link.source.id : link.source;
-      const tgt = typeof link.target === 'object' ? link.target.id : link.target;
-      return cycleNodeIds.has(src) && cycleNodeIds.has(tgt);
+    const sanitizedLinks = activeGraphData.links.map((l) => ({
+      ...l,
+      source: extractId(l.source),
+      target: extractId(l.target),
+    }));
+
+    const sanitizedGraphData = {
+      nodes: sanitizedNodes,
+      links: sanitizedLinks,
     };
 
     const Graph = (ForceGraph3D as any)()(containerRef.current)
       .width(width)
       .height(height)
-      .graphData(activeGraphData)
+      .graphData(sanitizedGraphData)
       .nodeId('id')
       .nodeVal((node: any) => {
         if (isCycleNode(node.id)) return 6.5;
@@ -197,7 +250,7 @@ export default function GraphViewer3D({
         }
       });
 
-    // FIXED STABLE PHYSICS PARAMETERS (Prevents Orbs from Exploding or Spreading Far Away)
+    // FIXED STABLE PHYSICS PARAMETERS
     Graph.d3Force('charge', d3.forceManyBody().strength(-35));
     Graph.d3Force('center', (d3 as any).forceCenter(0, 0, 0));
     Graph.d3Force('radial', (d3 as any).forceRadial(15, 0, 0, 0).strength(0.08));

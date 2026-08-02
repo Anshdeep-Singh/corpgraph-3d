@@ -32,7 +32,7 @@ const extractId = (val: any): string => {
   return String(val);
 };
 
-// Enrich graph with ecosystem circularity and cross-holding patterns
+// Enrich graph with multi-entity ecosystem circularity and cross-holding patterns
 export function enrichGraphWithSpecializedCycleStructures(graphData: GraphData): GraphData {
   const companyName = graphData.targetCompany.name;
   const lower = companyName.toLowerCase();
@@ -58,48 +58,63 @@ export function enrichGraphWithSpecializedCycleStructures(graphData: GraphData):
     }
   };
 
-  // Add realistic ecosystem circularity loops based on query
+  // Add realistic multi-node ecosystem circularity loops (4-entity loops) based on query
   if (lower.includes('nvidia')) {
     const p1 = 'CoreWeave Ventures';
-    const p2 = 'NVIDIA GPU Cloud Ops';
+    const p2 = 'Mental Images';
+    const p3 = 'NVIDIA GPU Cloud Ops';
 
     nodesMap.set(p1, { id: p1, name: p1, type: 'investor', val: 4.5, color: '#a855f7', description: 'AI Infrastructure Venture Fund' });
-    nodesMap.set(p2, { id: p2, name: p2, type: 'subsidiary', val: 3.8, color: '#22c55e', description: 'Cloud Compute Division' });
+    nodesMap.set(p2, { id: p2, name: p2, type: 'subsidiary', val: 3.5, color: '#22c55e', description: '3D Rendering & Cloud Division' });
+    nodesMap.set(p3, { id: p3, name: p3, type: 'subsidiary', val: 4.0, color: '#22c55e', description: 'Enterprise GPU Compute Division' });
 
+    // 4-Node Closed Loop: Nvidia -> CoreWeave -> Mental Images -> NVIDIA GPU Cloud Ops -> Nvidia
     addLink(companyName, p1, 'INVESTED_IN', 'Ecosystem Equity Funding');
-    addLink(p1, p2, 'SUBSIDIARY_OF', 'Capital Deployment');
-    addLink(p2, companyName, 'OWNED_BY', 'Hardware Revenue Recirculation');
+    addLink(p1, p2, 'INVESTED_IN', 'Sub-Tier AI Deployment');
+    addLink(p2, p3, 'SUBSIDIARY_OF', 'Compute Licensing Agreement');
+    addLink(p3, companyName, 'OWNED_BY', 'Hardware Revenue Recirculation');
   } else if (lower.includes('tesla')) {
-    const p1 = 'Gigafactory Holding S.A.';
-    const p2 = 'Musk Family Trust';
+    const p1 = 'Tesla Energy';
+    const p2 = 'SolarCity Capital';
+    const p3 = 'Gigafactory Holding S.A.';
 
-    nodesMap.set(p1, { id: p1, name: p1, type: 'subsidiary', val: 4.2, color: '#22c55e', description: 'European Production Holding' });
-    nodesMap.set(p2, { id: p2, name: p2, type: 'parent', val: 5.0, color: '#eab308', description: 'Primary Shareholder Trust' });
+    nodesMap.set(p1, { id: p1, name: p1, type: 'subsidiary', val: 4.2, color: '#22c55e', description: 'Energy Storage Division' });
+    nodesMap.set(p2, { id: p2, name: p2, type: 'investor', val: 4.0, color: '#a855f7', description: 'Renewable Asset Equity Fund' });
+    nodesMap.set(p3, { id: p3, name: p3, type: 'subsidiary', val: 3.8, color: '#22c55e', description: 'European Manufacturing Sub' });
 
+    // 4-Node Closed Loop: Tesla -> Tesla Energy -> SolarCity Capital -> Gigafactory Holding -> Tesla
     addLink(companyName, p1, 'SUBSIDIARY_OF', 'Direct Subsidiary');
-    addLink(p1, p2, 'OWNED_BY', 'Offshore Trust Stake');
-    addLink(p2, companyName, 'INVESTED_IN', 'Majority Control Stake');
+    addLink(p1, p2, 'INVESTED_IN', 'Capital Allocation');
+    addLink(p2, p3, 'INVESTED_IN', 'Factory Asset Financing');
+    addLink(p3, companyName, 'OWNED_BY', 'Equity Recirculation');
   } else if (lower.includes('google') || lower.includes('alphabet')) {
     const p1 = 'CapitalG Venture Fund';
-    const p2 = 'DeepMind AI Holdings';
+    const p2 = 'Verily Life Sciences';
+    const p3 = 'DeepMind AI Holdings';
 
     nodesMap.set(p1, { id: p1, name: p1, type: 'investor', val: 4.2, color: '#a855f7', description: 'Alphabet Growth Equity Fund' });
-    nodesMap.set(p2, { id: p2, name: p2, type: 'subsidiary', val: 4.0, color: '#22c55e', description: 'Research & Intelligence Sub' });
+    nodesMap.set(p2, { id: p2, name: p2, type: 'subsidiary', val: 3.8, color: '#22c55e', description: 'Healthcare Tech Division' });
+    nodesMap.set(p3, { id: p3, name: p3, type: 'subsidiary', val: 4.0, color: '#22c55e', description: 'AI Research & Intelligence' });
 
+    // 4-Node Closed Loop: Alphabet -> CapitalG -> Verily -> DeepMind -> Alphabet
     addLink(companyName, p1, 'SUBSIDIARY_OF', 'Corporate Venture Arm');
-    addLink(p1, p2, 'INVESTED_IN', 'AI Strategic Allocation');
-    addLink(p2, companyName, 'OWNED_BY', 'IP Reciprocal Transfer');
+    addLink(p1, p2, 'INVESTED_IN', 'Ventures Allocation');
+    addLink(p2, p3, 'INVESTED_IN', 'Cross-Divisional IP Stake');
+    addLink(p3, companyName, 'OWNED_BY', 'IP Royalty Recirculation');
   } else {
-    // Default generic closed ecosystem cycle for thorough forensic testing
+    // Default multi-node closed loop (4 entities)
     const p1 = `${companyName} Strategic Capital`;
-    const p2 = `${companyName} Global IP Holdings`;
+    const p2 = `${companyName} Offshore Holdings`;
+    const p3 = `${companyName} Global IP Trust`;
 
-    nodesMap.set(p1, { id: p1, name: p1, type: 'investor', val: 4.2, color: '#a855f7', description: 'Strategic Equity Allocation Fund' });
-    nodesMap.set(p2, { id: p2, name: p2, type: 'subsidiary', val: 3.8, color: '#22c55e', description: 'Offshore Licensing Entity' });
+    nodesMap.set(p1, { id: p1, name: p1, type: 'investor', val: 4.2, color: '#a855f7', description: 'Strategic Equity Fund' });
+    nodesMap.set(p2, { id: p2, name: p2, type: 'parent', val: 4.5, color: '#eab308', description: 'Offshore Holding Layer' });
+    nodesMap.set(p3, { id: p3, name: p3, type: 'subsidiary', val: 3.8, color: '#22c55e', description: 'IP Licensing Entity' });
 
-    addLink(companyName, p1, 'INVESTED_IN', 'Capital Allocation');
-    addLink(p1, p2, 'SUBSIDIARY_OF', 'Equity Stake');
-    addLink(p2, companyName, 'OWNED_BY', 'Royalty Recirculation');
+    addLink(companyName, p1, 'INVESTED_IN', 'Venture Allocation');
+    addLink(p1, p2, 'SUBSIDIARY_OF', 'Intermediate Tier');
+    addLink(p2, p3, 'OWNED_BY', 'Licensing Rights');
+    addLink(p3, companyName, 'OWNED_BY', 'Royalty Recirculation');
   }
 
   return {
