@@ -41,34 +41,62 @@ export default function GraphViewer3D({
     forensicsReport?.circularInvestmentChains?.[0]?.chain ||
     [];
 
-  const cycleNodeIds = new Set<string>(activeCycleChain);
+  // Collect set of all node IDs/names participating in the active cycle loop
+  const cycleNodeIds = new Set<string>();
+  activeCycleChain.forEach((val) => {
+    if (val !== undefined && val !== null) {
+      cycleNodeIds.add(String(val));
+    }
+  });
 
-  // Build edge keys for the cycle chain
+  // Unique sequence of entities in cycle
+  const cleanCycleChain = Array.from(new Set(activeCycleChain));
+
+  // Build edge keys for the cycle chain (handles any cycle length N >= 2, closing the loop)
   const cycleEdgeKeys = new Set<string>();
-  if (activeCycleChain.length >= 2) {
-    for (let i = 0; i < activeCycleChain.length - 1; i++) {
-      const u = activeCycleChain[i];
-      const v = activeCycleChain[i + 1];
+  if (cleanCycleChain.length >= 2) {
+    const len = cleanCycleChain.length;
+    for (let i = 0; i < len; i++) {
+      const u = String(cleanCycleChain[i]);
+      const v = String(cleanCycleChain[(i + 1) % len]);
       cycleEdgeKeys.add(`${u}->${v}`);
       cycleEdgeKeys.add(`${v}->${u}`);
     }
-    const first = activeCycleChain[0];
-    const last = activeCycleChain[activeCycleChain.length - 1];
-    cycleEdgeKeys.add(`${last}->${first}`);
-    cycleEdgeKeys.add(`${first}->${last}`);
   }
 
-  const isCycleNode = (id: string) => cycleNodeIds.has(id);
+  const isCycleNode = (id: string, name?: string) => {
+    const sId = String(id);
+    const sName = name ? String(name) : '';
+    return cycleNodeIds.has(sId) || (sName ? cycleNodeIds.has(sName) : false);
+  };
 
   const isCycleLink = (link: any) => {
-    const src = extractId(link.source);
-    const tgt = extractId(link.target);
-    if (cycleEdgeKeys.has(`${src}->${tgt}`) || cycleEdgeKeys.has(`${tgt}->${src}`)) {
+    const srcId = extractId(link.source);
+    const tgtId = extractId(link.target);
+    const srcName = typeof link.source === 'object' ? String(link.source.name || '') : '';
+    const tgtName = typeof link.target === 'object' ? String(link.target.name || '') : '';
+
+    // Direct match against sequential cycle edge pairs
+    if (
+      cycleEdgeKeys.has(`${srcId}->${tgtId}`) ||
+      cycleEdgeKeys.has(`${tgtId}->${srcId}`) ||
+      (srcName && tgtName && (cycleEdgeKeys.has(`${srcName}->${tgtName}`) || cycleEdgeKeys.has(`${tgtName}->${srcName}`)))
+    ) {
       return true;
     }
-    if (link.isCycleEdge && cycleNodeIds.has(src) && cycleNodeIds.has(tgt)) {
+
+    // Match if both endpoints belong to active cycle node set
+    const srcInCycle = cycleNodeIds.has(srcId) || (srcName !== '' && cycleNodeIds.has(srcName));
+    const tgtInCycle = cycleNodeIds.has(tgtId) || (tgtName !== '' && cycleNodeIds.has(tgtName));
+
+    if (srcInCycle && tgtInCycle) {
       return true;
     }
+
+    if (link.isCycleEdge && (srcInCycle || tgtInCycle)) {
+      return true;
+    }
+
     return false;
   };
 
@@ -76,12 +104,8 @@ export default function GraphViewer3D({
   const activeGraphData: GraphData =
     isolatedCycleMode && cycleNodeIds.size > 0
       ? {
-          nodes: data.nodes.filter((n) => cycleNodeIds.has(n.id)),
-          links: data.links.filter((l) => {
-            const src = extractId(l.source);
-            const tgt = extractId(l.target);
-            return cycleNodeIds.has(src) && cycleNodeIds.has(tgt);
-          }),
+          nodes: data.nodes.filter((n) => isCycleNode(n.id, n.name)),
+          links: data.links.filter((l) => isCycleLink(l)),
           targetCompany: data.targetCompany,
         }
       : data;
@@ -125,37 +149,76 @@ export default function GraphViewer3D({
       .graphData(sanitizedGraphData)
       .nodeId('id')
       .nodeVal((node: any) => {
-        if (isCycleNode(node.id)) return 6.5;
+        if (isCycleNode(node.id, node.name)) return 6.5;
         return node.val || 4.0;
       })
       .nodeColor((node: any) => {
-        if (isCycleNode(node.id)) return '#ef4444'; // Crimson glow for loop nodes
+        if (isCycleNode(node.id, node.name)) return '#ef4444'; // Crimson glow for loop nodes
         if (node.isFlagged) return '#f97316'; // Orange for flagged nodes
         return node.color || '#3b82f6';
       })
       .nodeThreeObject((node: any) => {
         const group = new THREE.Group();
-        const inCycle = isCycleNode(node.id);
+        const inCycle = isCycleNode(node.id, node.name);
 
         const radius = inCycle ? 6.5 : node.isFlagged ? 5.5 : node.val || 4.0;
-        const geometry = new THREE.SphereGeometry(radius, 24, 24);
+        const color = inCycle ? '#ef4444' : node.isFlagged ? '#f97316' : node.color || '#3b82f6';
+
+        let geometry: THREE.BufferGeometry;
+
+        // DISTINCT 3D GEOMETRIES ACCORDING TO CORPORATE ENTITY TYPE
+        switch (node.type) {
+          case 'parent':
+            // Solid Cube for Parent / Holding Companies
+            geometry = new THREE.BoxGeometry(radius * 1.5, radius * 1.5, radius * 1.5);
+            break;
+
+          case 'subsidiary':
+            // Column / Cylinder for Subsidiaries and Operating Units
+            geometry = new THREE.CylinderGeometry(radius * 0.85, radius * 1.1, radius * 1.8, 16);
+            break;
+
+          case 'investor':
+            // Sparkling Diamond / Octahedron for Institutional Investors
+            geometry = new THREE.OctahedronGeometry(radius * 1.35, 0);
+            break;
+
+          case 'target':
+            // Crystalline Faceted Icosahedron for Root Target Company
+            geometry = new THREE.IcosahedronGeometry(radius * 1.25, 1);
+            break;
+
+          default:
+            // Smooth Sphere / Orb for general entities
+            geometry = new THREE.SphereGeometry(radius, 24, 24);
+            break;
+        }
 
         const material = new THREE.MeshPhysicalMaterial({
-          color: inCycle ? '#ef4444' : node.isFlagged ? '#f97316' : node.color || '#3b82f6',
-          roughness: 0.25,
-          metalness: 0.15,
-          emissive: new THREE.Color(
-            inCycle ? '#ef4444' : node.isFlagged ? '#f97316' : node.color || '#3b82f6'
-          ),
-          emissiveIntensity: inCycle ? 0.8 : node.isFlagged ? 0.5 : 0.2,
+          color: color,
+          roughness: node.type === 'investor' ? 0.15 : 0.25,
+          metalness: node.type === 'investor' ? 0.45 : node.type === 'parent' ? 0.3 : 0.15,
+          emissive: new THREE.Color(color),
+          emissiveIntensity: inCycle ? 0.85 : node.isFlagged ? 0.5 : 0.25,
           transparent: true,
           opacity: 0.95,
         });
 
-        const sphere = new THREE.Mesh(geometry, material);
-        group.add(sphere);
+        const mesh = new THREE.Mesh(geometry, material);
+        group.add(mesh);
 
-        // Animated double aura ring for loop nodes
+        // Wireframe Edge Outline for crisp geometric definition on cubes, cylinders, diamonds & crystalline shapes
+        const edges = new THREE.EdgesGeometry(geometry);
+        const lineMat = new THREE.LineBasicMaterial({
+          color: inCycle ? '#fca5a5' : '#ffffff',
+          transparent: true,
+          opacity: inCycle ? 0.75 : 0.35,
+          linewidth: 1,
+        });
+        const wireframe = new THREE.LineSegments(edges, lineMat);
+        group.add(wireframe);
+
+        // Animated double aura ring for active cycle loop nodes
         if (inCycle) {
           const ringGeo = new THREE.RingGeometry(radius + 1.8, radius + 3.2, 32);
           const ringMat = new THREE.MeshBasicMaterial({
@@ -180,7 +243,7 @@ export default function GraphViewer3D({
           group.add(ring2);
         }
 
-        // Billboard Sprite Text
+        // Billboard Sprite Text Label
         const sprite = new SpriteText(node.name);
         sprite.color = '#f8fafc';
         sprite.textHeight = inCycle ? 3.0 : node.type === 'target' ? 2.8 : 2.2;
@@ -189,7 +252,7 @@ export default function GraphViewer3D({
         sprite.borderWidth = inCycle ? 1.5 : 0.8;
         sprite.borderRadius = 4;
         sprite.padding = 1.8;
-        sprite.position.set(0, radius + 4.2, 0);
+        sprite.position.set(0, radius + 4.5, 0);
 
         group.add(sprite);
         return group;
@@ -197,13 +260,13 @@ export default function GraphViewer3D({
       .nodeLabel(
         (node: any) => `
         <div style="color:white;background:rgba(15,23,42,0.95);padding:8px 14px;border-radius:10px;font-family:system-ui,sans-serif;font-size:12px;border:1px solid ${
-          isCycleNode(node.id) ? '#ef4444' : node.color || '#3b82f6'
+          isCycleNode(node.id, node.name) ? '#ef4444' : node.color || '#3b82f6'
         };box-shadow:0 8px 24px rgba(0,0,0,0.7);">
           <div style="font-weight:700;font-size:14px;color:${
-            isCycleNode(node.id) ? '#ef4444' : node.color || '#3b82f6'
+            isCycleNode(node.id, node.name) ? '#ef4444' : node.color || '#3b82f6'
           };">${node.name}</div>
           <div style="text-transform:uppercase;font-size:10px;letter-spacing:0.8px;color:#94a3b8;margin-top:3px;">
-            TYPE: ${node.type} ${isCycleNode(node.id) ? '• 🔴 ACTIVE CYCLE LOOP NODE' : ''}
+            TYPE: ${node.type} ${isCycleNode(node.id, node.name) ? '• 🔴 ACTIVE CYCLE LOOP NODE' : ''}
           </div>
           ${
             node.description

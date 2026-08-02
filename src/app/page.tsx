@@ -305,11 +305,11 @@ export default function HomePage() {
         </div>
 
         {/* Graph Legend Overlay */}
-        <div className="absolute bottom-6 left-6 z-10 hidden md:block bg-slate-900/85 backdrop-blur-md border border-slate-800/80 p-4 rounded-2xl shadow-2xl text-xs space-y-2.5 min-w-[210px]">
+        <div className="absolute bottom-6 left-6 z-10 hidden md:block bg-slate-900/85 backdrop-blur-md border border-slate-800/80 p-4 rounded-2xl shadow-2xl text-xs space-y-2.5 min-w-[220px]">
           <div className="font-semibold text-slate-300 flex items-center justify-between border-b border-slate-800 pb-2">
             <span className="flex items-center space-x-1.5">
               <Layers className="w-3.5 h-3.5 text-blue-400" />
-              <span>Entity Legend</span>
+              <span>3D Shapes & Entity Legend</span>
             </span>
             {filteredGraphData && (
               <span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-mono">
@@ -320,26 +320,26 @@ export default function HomePage() {
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="flex items-center space-x-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-blue-500 shadow-sm shadow-blue-500/50" />
-                <span className="text-slate-300 font-medium">Target Company (6.5)</span>
+                <span className="w-2.5 h-2.5 rounded-sm bg-blue-500 shadow-sm shadow-blue-500/50" />
+                <span className="text-slate-300 font-medium">Target (Icosahedron)</span>
               </span>
             </div>
             <div className="flex items-center justify-between">
               <span className="flex items-center space-x-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shadow-sm shadow-amber-500/50" />
-                <span className="text-slate-300">Parent Holding (4.8)</span>
+                <span className="w-2.5 h-2.5 bg-amber-500 shadow-sm shadow-amber-500/50" />
+                <span className="text-slate-300">Parent Holding (Cube)</span>
               </span>
             </div>
             <div className="flex items-center justify-between">
               <span className="flex items-center space-x-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-green-500 shadow-sm shadow-green-500/50" />
-                <span className="text-slate-300">Subsidiary Unit (3.2)</span>
+                <span className="text-slate-300">Subsidiary Unit (Cylinder)</span>
               </span>
             </div>
             <div className="flex items-center justify-between">
               <span className="flex items-center space-x-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-purple-500 shadow-sm shadow-purple-500/50" />
-                <span className="text-slate-300">Investor (4.0)</span>
+                <span className="w-2.5 h-2.5 rotate-45 bg-purple-500 shadow-sm shadow-purple-500/50" />
+                <span className="text-slate-300">Investor (Diamond)</span>
               </span>
             </div>
             {forensicsReport && (
