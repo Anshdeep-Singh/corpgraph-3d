@@ -58,7 +58,7 @@ export async function fetchCorporateGraph(companyQuery: string): Promise<GraphDa
     id: companyName,
     name: companyName,
     type: 'target',
-    val: 8,
+    val: 28,
     color: '#3b82f6', // Bright Blue
     description,
   });
@@ -73,7 +73,7 @@ export async function fetchCorporateGraph(companyQuery: string): Promise<GraphDa
             id: pName,
             name: pName,
             type: 'parent',
-            val: 5,
+            val: 22,
             color: '#eab308', // Gold
             description: 'Parent / Holding Company',
           });
@@ -96,7 +96,7 @@ export async function fetchCorporateGraph(companyQuery: string): Promise<GraphDa
             id: sName,
             name: sName,
             type: 'subsidiary',
-            val: 4,
+            val: 16,
             color: '#22c55e', // Green
             description: 'Subsidiary / Division',
           });
@@ -119,7 +119,7 @@ export async function fetchCorporateGraph(companyQuery: string): Promise<GraphDa
             id: iName,
             name: iName,
             type: 'investor',
-            val: 5,
+            val: 18,
             color: '#a855f7', // Purple
             description: 'Institutional Investor / Stakeholder',
           });
@@ -142,5 +142,75 @@ export async function fetchCorporateGraph(companyQuery: string): Promise<GraphDa
       description,
       wikidataId: qid,
     },
+  };
+}
+
+export async function branchCorporateGraph(
+  currentGraph: GraphData,
+  branchEntityName: string
+): Promise<GraphData> {
+  const newGraph = await fetchCorporateGraph(branchEntityName);
+
+  const nodesMap = new Map<string, GraphNode>();
+
+  // Preserve existing nodes
+  currentGraph.nodes.forEach((node) => {
+    nodesMap.set(node.id, { ...node });
+  });
+
+  // Merge new nodes
+  newGraph.nodes.forEach((node) => {
+    if (nodesMap.has(node.id)) {
+      const existing = nodesMap.get(node.id)!;
+      // If the node was a subsidiary/parent before and is now the target of a branch, elevate size
+      if (node.type === 'target' && existing.type !== 'target') {
+        existing.val = Math.max(existing.val, 24);
+      }
+    } else {
+      nodesMap.set(node.id, { ...node });
+    }
+  });
+
+  // Combine and deduplicate links
+  const existingLinkKeys = new Set<string>();
+  const combinedLinks: GraphLink[] = [];
+
+  const extractId = (val: any): string => {
+    if (typeof val === 'object' && val !== null && 'id' in val) {
+      return String(val.id);
+    }
+    return String(val);
+  };
+
+  currentGraph.links.forEach((l) => {
+    const src = extractId(l.source);
+    const tgt = extractId(l.target);
+    const key = `${src}->${tgt}:${l.relationship}`;
+    existingLinkKeys.add(key);
+    combinedLinks.push({
+      ...l,
+      source: src,
+      target: tgt,
+    });
+  });
+
+  newGraph.links.forEach((l) => {
+    const src = extractId(l.source);
+    const tgt = extractId(l.target);
+    const key = `${src}->${tgt}:${l.relationship}`;
+    if (!existingLinkKeys.has(key)) {
+      existingLinkKeys.add(key);
+      combinedLinks.push({
+        ...l,
+        source: src,
+        target: tgt,
+      });
+    }
+  });
+
+  return {
+    nodes: Array.from(nodesMap.values()),
+    links: combinedLinks,
+    targetCompany: currentGraph.targetCompany,
   };
 }

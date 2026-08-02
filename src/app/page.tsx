@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import dynamic from 'next/dynamic';
-import { fetchCorporateGraph } from '@/lib/wikidata';
+import { fetchCorporateGraph, branchCorporateGraph } from '@/lib/wikidata';
 import { exportGraphToPDF } from '@/lib/pdfExporter';
 import { GraphData, GraphNode } from '@/types/graph';
 import {
@@ -17,7 +17,10 @@ import {
   ZoomIn,
   Loader2,
   AlertCircle,
-  ExternalLink,
+  GitFork,
+  Network,
+  CheckCircle2,
+  RotateCcw,
 } from 'lucide-react';
 
 // Dynamically import 3D Graph viewer to prevent SSR WebGL issues
@@ -37,9 +40,12 @@ export default function HomePage() {
   const [searchQuery, setSearchQuery] = useState('Tesla');
   const [graphData, setGraphData] = useState<GraphData | null>(null);
   const [loading, setLoading] = useState(false);
+  const [branching, setBranching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [exportingPDF, setExportingPDF] = useState(false);
+  const [branchedEntities, setBranchedEntities] = useState<string[]>([]);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const graphContainerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<any>(null);
@@ -51,10 +57,12 @@ export default function HomePage() {
     setLoading(true);
     setError(null);
     setSelectedNode(null);
+    setBranchedEntities([]);
 
     try {
       const data = await fetchCorporateGraph(q);
       setGraphData(data);
+      setBranchedEntities([data.targetCompany.name]);
     } catch (err: any) {
       setError(err.message || 'Failed to fetch corporate relationships');
       setGraphData(null);
@@ -66,6 +74,35 @@ export default function HomePage() {
   useEffect(() => {
     handleSearch('Tesla');
   }, []);
+
+  const handleBranchOut = async (entityName: string) => {
+    if (!graphData || branching) return;
+
+    setBranching(true);
+    try {
+      const prevNodesCount = graphData.nodes.length;
+      const prevLinksCount = graphData.links.length;
+
+      const updatedGraph = await branchCorporateGraph(graphData, entityName);
+
+      const addedNodes = updatedGraph.nodes.length - prevNodesCount;
+      const addedLinks = updatedGraph.links.length - prevLinksCount;
+
+      setGraphData(updatedGraph);
+      setBranchedEntities((prev) =>
+        prev.includes(entityName) ? prev : [...prev, entityName]
+      );
+
+      setToastMessage(
+        `Branched out "${entityName}": +${addedNodes} new entities, +${addedLinks} connections`
+      );
+      setTimeout(() => setToastMessage(null), 4000);
+    } catch (err: any) {
+      alert(`Could not branch out for "${entityName}": ${err.message || 'Entity not found'}`);
+    } finally {
+      setBranching(false);
+    }
+  };
 
   const handleExportPDF = async () => {
     if (!graphData || !graphContainerRef.current) return;
@@ -82,13 +119,23 @@ export default function HomePage() {
 
   const getNodeConnections = (nodeId: string) => {
     if (!graphData) return [];
-    return graphData.links.filter(
-      (link) => link.source === nodeId || link.target === nodeId
-    );
+    return graphData.links.filter((link) => {
+      const src = typeof link.source === 'object' ? (link.source as any).id : link.source;
+      const tgt = typeof link.target === 'object' ? (link.target as any).id : link.target;
+      return src === nodeId || tgt === nodeId;
+    });
   };
 
   return (
     <div className="flex flex-col h-screen w-screen bg-slate-950 text-slate-100 overflow-hidden font-sans">
+      {/* Toast Notification Banner */}
+      {toastMessage && (
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 bg-blue-600/90 text-white px-4 py-2 rounded-2xl shadow-2xl backdrop-blur-md border border-blue-400/40 text-xs font-semibold flex items-center space-x-2 animate-in fade-in slide-in-from-top-4 duration-200">
+          <CheckCircle2 className="w-4 h-4 text-blue-200" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
+
       {/* Top Bar Navigation */}
       <header className="h-16 border-b border-slate-800/80 bg-slate-900/90 backdrop-blur-md px-6 flex items-center justify-between z-20 shrink-0">
         <div className="flex items-center space-x-3">
@@ -128,6 +175,16 @@ export default function HomePage() {
               {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Search'}
             </button>
           </form>
+
+          {branchedEntities.length > 1 && (
+            <button
+              onClick={() => handleSearch(graphData?.targetCompany.name || searchQuery)}
+              title="Reset graph to original root entity"
+              className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl border border-slate-700 transition-colors"
+            >
+              <RotateCcw className="w-4 h-4" />
+            </button>
+          )}
         </div>
 
         {/* Action Controls */}
@@ -171,8 +228,26 @@ export default function HomePage() {
           ))}
         </div>
 
+        {/* Active Branched Entities Pill Strip */}
+        {branchedEntities.length > 1 && (
+          <div className="absolute top-16 left-6 z-10 flex items-center space-x-2 bg-slate-900/80 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-slate-800/80 shadow-xl text-xs text-slate-300">
+            <GitFork className="w-3.5 h-3.5 text-blue-400" />
+            <span className="font-semibold text-slate-400">Branched ({branchedEntities.length}):</span>
+            <div className="flex items-center space-x-1 max-w-md overflow-x-auto">
+              {branchedEntities.map((ent, idx) => (
+                <span
+                  key={idx}
+                  className="px-2 py-0.5 bg-blue-950/80 border border-blue-800/50 text-blue-300 rounded-lg text-[11px] whitespace-nowrap"
+                >
+                  {ent}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Graph Legend Overlay */}
-        <div className="absolute bottom-6 left-6 z-10 bg-slate-900/85 backdrop-blur-md border border-slate-800/80 p-4 rounded-2xl shadow-2xl text-xs space-y-2.5 min-w-[200px]">
+        <div className="absolute bottom-6 left-6 z-10 bg-slate-900/85 backdrop-blur-md border border-slate-800/80 p-4 rounded-2xl shadow-2xl text-xs space-y-2.5 min-w-[210px]">
           <div className="font-semibold text-slate-300 flex items-center justify-between border-b border-slate-800 pb-2">
             <span className="flex items-center space-x-1.5">
               <Layers className="w-3.5 h-3.5 text-blue-400" />
@@ -188,7 +263,7 @@ export default function HomePage() {
             <div className="flex items-center justify-between">
               <span className="flex items-center space-x-2">
                 <span className="w-3 h-3 rounded-full bg-blue-500 shadow-sm shadow-blue-500/50" />
-                <span className="text-slate-300 font-medium">Target Company</span>
+                <span className="text-slate-300 font-medium">Target / Root Company</span>
               </span>
             </div>
             <div className="flex items-center justify-between">
@@ -214,11 +289,17 @@ export default function HomePage() {
 
         {/* 3D WebGL Canvas Viewport */}
         <div ref={graphContainerRef} className="w-full h-full relative">
-          {loading && (
+          {(loading || branching) && (
             <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm z-30 flex flex-col items-center justify-center text-slate-300">
               <Loader2 className="w-10 h-10 animate-spin text-blue-500 mb-4" />
-              <p className="text-sm font-semibold">Querying Wikidata SPARQL Engine...</p>
-              <p className="text-xs text-slate-500 mt-1">Retrieving parent companies, subsidiaries & investors</p>
+              <p className="text-sm font-semibold">
+                {branching ? 'Branching Graph Relationships...' : 'Querying Wikidata SPARQL Engine...'}
+              </p>
+              <p className="text-xs text-slate-500 mt-1">
+                {branching
+                  ? 'Merging new corporate nodes & linking shared entities'
+                  : 'Retrieving parent companies, subsidiaries & investors'}
+              </p>
             </div>
           )}
 
@@ -299,8 +380,12 @@ export default function HomePage() {
                   </label>
                   <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
                     {getNodeConnections(selectedNode.id).map((link, idx) => {
-                      const otherNode =
-                        link.source === selectedNode.id ? link.target : link.source;
+                      const src =
+                        typeof link.source === 'object' ? (link.source as any).id : link.source;
+                      const tgt =
+                        typeof link.target === 'object' ? (link.target as any).id : link.target;
+                      const otherNode = src === selectedNode.id ? tgt : src;
+
                       return (
                         <div
                           key={idx}
@@ -319,7 +404,20 @@ export default function HomePage() {
             </div>
 
             {/* Drawer Actions Footer */}
-            <div className="pt-4 border-t border-slate-800 space-y-2 mt-4">
+            <div className="pt-4 border-t border-slate-800 space-y-2.5 mt-4">
+              <button
+                onClick={() => handleBranchOut(selectedNode.name)}
+                disabled={branching}
+                className="w-full flex items-center justify-center space-x-2 py-2.5 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 active:from-blue-700 active:to-indigo-700 text-white text-xs font-semibold rounded-xl transition-all shadow-md shadow-blue-500/20 disabled:opacity-50"
+              >
+                {branching ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-white" />
+                ) : (
+                  <GitFork className="w-4 h-4 text-white" />
+                )}
+                <span>Branch Out Graph</span>
+              </button>
+
               <button
                 onClick={() => {
                   if (
