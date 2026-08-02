@@ -16,9 +16,6 @@ import {
   Loader2,
   AlertCircle,
   CheckCircle2,
-  Info,
-  ShieldCheck,
-  Brain,
 } from 'lucide-react';
 
 // Dynamically import 3D Graph viewer to prevent SSR WebGL issues
@@ -49,6 +46,7 @@ export default function HomePage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [aiModalOpen, setAiModalOpen] = useState(false);
   const [forensicsReport, setForensicsReport] = useState<ForensicsReport | null>(null);
+  const [activeCycleHighlight, setActiveCycleHighlight] = useState<string[] | null>(null);
   const [depthLevel, setDepthLevel] = useState(2);
   const [nodeFilters, setNodeFilters] = useState({
     parents: true,
@@ -74,6 +72,7 @@ export default function HomePage() {
     setSelectedNode(null);
     setBranchedEntities([]);
     setForensicsReport(null);
+    setActiveCycleHighlight(null);
 
     // Update recent searches
     setRecentSearches((prev) => Array.from(new Set([q, ...prev])).slice(0, 5));
@@ -96,7 +95,7 @@ export default function HomePage() {
     handleSearch('Tesla');
   }, []);
 
-  // Keyboard Shortcuts Handler: Esc (close), / (focus search), Space (reset camera)
+  // Keyboard Shortcuts Handler: Esc (close), Space (reset camera)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -104,7 +103,6 @@ export default function HomePage() {
         setDrawerOpen(false);
         setAiModalOpen(false);
       } else if (e.key === ' ' && graphRef.current && !e.target) {
-        // Space bar camera reset
         graphRef.current.zoomToFit(1200, 50);
       }
     };
@@ -127,7 +125,6 @@ export default function HomePage() {
       const addedNodes = updatedGraph.nodes.length - prevNodesCount;
       const addedLinks = updatedGraph.links.length - prevLinksCount;
 
-      // Re-apply flagging if a forensic report was active
       if (forensicsReport) {
         updatedGraph.nodes.forEach((node) => {
           if (forensicsReport.flaggedNodeIds.includes(node.id)) {
@@ -184,11 +181,38 @@ export default function HomePage() {
     }
   };
 
-  const handleReportGenerated = (report: ForensicsReport) => {
-    setForensicsReport(report);
+  const handleHighlightCycle = (cycleNodes: string[]) => {
+    setActiveCycleHighlight(cycleNodes);
     if (!graphData) return;
 
-    // Apply risk flags to graph nodes
+    // Find cycle nodes in graph data
+    const matched = graphData.nodes.filter((n) => cycleNodes.includes(n.id));
+    if (matched.length > 0) {
+      setSelectedNode(matched[0]);
+      // Calculate geometric center of cycle
+      const avgX = matched.reduce((acc, n) => acc + (n.x || 0), 0) / matched.length;
+      const avgY = matched.reduce((acc, n) => acc + (n.y || 0), 0) / matched.length;
+      const avgZ = matched.reduce((acc, n) => acc + (n.z || 0), 0) / matched.length;
+
+      if (graphRef.current) {
+        graphRef.current.cameraPosition(
+          { x: avgX + 60, y: avgY + 60, z: avgZ + 60 },
+          { x: avgX, y: avgY, z: avgZ },
+          1800
+        );
+      }
+    }
+    showToast(`Focused 3D camera on ${cycleNodes.length}-node loop: ${cycleNodes.join(' ➔ ')}`);
+  };
+
+  const handleReportGenerated = (report: ForensicsReport) => {
+    setForensicsReport(report);
+    if (report.activeCycleHighlight) {
+      setActiveCycleHighlight(report.activeCycleHighlight);
+    }
+
+    if (!graphData) return;
+
     const updatedNodes = graphData.nodes.map((node) => {
       const isFlagged = report.flaggedNodeIds.includes(node.id);
       return {
@@ -205,11 +229,10 @@ export default function HomePage() {
     });
 
     showToast(
-      `AI Forensic Audit Complete: Overall Risk Category ${report.riskCategory} (${report.overallRiskScore}/100)`
+      `10-Agent Forensic Audit Complete: Overall Risk Category ${report.riskCategory} (${report.overallRiskScore}/100)`
     );
   };
 
-  // Filter graph nodes based on drawer toggles
   const filteredGraphData: GraphData | null = graphData
     ? {
         ...graphData,
@@ -234,7 +257,7 @@ export default function HomePage() {
 
   return (
     <div className="flex flex-col h-screen w-screen bg-slate-950 text-slate-100 overflow-hidden font-sans">
-      {/* Toast Notification Banner */}
+      {/* Toast Banner */}
       {toastMessage && (
         <div className="absolute top-18 left-1/2 -translate-x-1/2 z-50 bg-blue-600/95 text-white px-4 py-2.5 rounded-2xl shadow-2xl backdrop-blur-md border border-blue-400/40 text-xs font-semibold flex items-center space-x-2.5 animate-in fade-in slide-in-from-top-4 duration-200 max-w-md text-center">
           <CheckCircle2 className="w-4 h-4 text-blue-200 shrink-0" />
@@ -242,7 +265,7 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* Top Header Navigation Bar */}
+      {/* Header */}
       <Header
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
@@ -259,7 +282,7 @@ export default function HomePage() {
 
       {/* Main Viewport Container */}
       <div className="relative flex-1 w-full h-full overflow-hidden">
-        {/* Quick Suggestion Pills (Desktop) */}
+        {/* Quick Suggestion Pills */}
         <div className="hidden sm:flex absolute top-4 left-6 z-10 items-center space-x-2 bg-slate-900/80 backdrop-blur-md p-1.5 rounded-2xl border border-slate-800/80 shadow-xl">
           <Sparkles className="w-4 h-4 text-amber-400 ml-2 mr-1" />
           <span className="text-xs text-slate-400 font-medium mr-1">Quick:</span>
@@ -280,24 +303,6 @@ export default function HomePage() {
             </button>
           ))}
         </div>
-
-        {/* Active Branched Entities Pill Strip */}
-        {branchedEntities.length > 1 && (
-          <div className="absolute top-16 left-6 z-10 hidden sm:flex items-center space-x-2 bg-slate-900/80 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-slate-800/80 shadow-xl text-xs text-slate-300">
-            <GitFork className="w-3.5 h-3.5 text-blue-400" />
-            <span className="font-semibold text-slate-400">Branched ({branchedEntities.length}):</span>
-            <div className="flex items-center space-x-1 max-w-md overflow-x-auto">
-              {branchedEntities.map((ent, idx) => (
-                <span
-                  key={idx}
-                  className="px-2 py-0.5 bg-blue-950/80 border border-blue-800/50 text-blue-300 rounded-lg text-[11px] whitespace-nowrap"
-                >
-                  {ent}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
 
         {/* Graph Legend Overlay */}
         <div className="absolute bottom-6 left-6 z-10 hidden md:block bg-slate-900/85 backdrop-blur-md border border-slate-800/80 p-4 rounded-2xl shadow-2xl text-xs space-y-2.5 min-w-[210px]">
@@ -341,7 +346,7 @@ export default function HomePage() {
               <div className="flex items-center justify-between pt-1 border-t border-slate-800">
                 <span className="flex items-center space-x-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
-                  <span className="text-red-400 font-semibold">Flagged Risk (5.5)</span>
+                  <span className="text-red-400 font-semibold">Cycle / Flagged Risk</span>
                 </span>
               </div>
             )}
@@ -354,12 +359,7 @@ export default function HomePage() {
             <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm z-30 flex flex-col items-center justify-center text-slate-300">
               <Loader2 className="w-10 h-10 animate-spin text-blue-500 mb-4" />
               <p className="text-sm font-semibold">
-                {branching ? 'Branching Graph Relationships...' : 'Fetching Resilient Corporate Graph...'}
-              </p>
-              <p className="text-xs text-slate-500 mt-1">
-                {branching
-                  ? 'Merging new corporate nodes & linking shared entities'
-                  : 'Querying Wikidata SPARQL & multi-tier fallback pipeline'}
+                {branching ? 'Branching Graph Relationships...' : 'Fetching Corporate Graph...'}
               </p>
             </div>
           )}
@@ -370,15 +370,6 @@ export default function HomePage() {
                 <AlertCircle className="w-8 h-8 text-red-400" />
               </div>
               <p className="text-base font-semibold text-slate-200">{error}</p>
-              <p className="text-xs text-slate-400 max-w-md mt-1 mb-4">
-                Check spelling or try another company name (e.g., "Apple", "Microsoft", "Alphabet").
-              </p>
-              <button
-                onClick={() => handleSearch('Tesla')}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 rounded-xl border border-slate-700 transition-colors"
-              >
-                Reset to Tesla
-              </button>
             </div>
           )}
 
@@ -387,11 +378,13 @@ export default function HomePage() {
               data={filteredGraphData}
               onSelectNode={(node) => setSelectedNode(node)}
               graphRefContainer={graphRef}
+              forensicsReport={forensicsReport}
+              activeCycleHighlight={activeCycleHighlight}
             />
           )}
         </div>
 
-        {/* Mobile Slide-Over Drawer */}
+        {/* Drawer */}
         <MobileDrawer
           isOpen={drawerOpen}
           onClose={() => setDrawerOpen(false)}
@@ -407,7 +400,7 @@ export default function HomePage() {
           onResetGraph={() => handleSearch(graphData?.targetCompany.name || searchQuery)}
         />
 
-        {/* Responsive Dual-Mode Inspector Sheet */}
+        {/* Inspector Sheet */}
         {selectedNode && (
           <InspectorSheet
             selectedNode={selectedNode}
@@ -418,10 +411,11 @@ export default function HomePage() {
             onFocusCamera={handleFocusCamera}
             forensicsReport={forensicsReport}
             onOpenAIForensics={() => setAiModalOpen(true)}
+            onHighlightCycle={handleHighlightCycle}
           />
         )}
 
-        {/* Client-Side AI Forensics Engine Modal */}
+        {/* AI Forensics Modal */}
         <AIForensicsModal
           isOpen={aiModalOpen}
           onClose={() => setAiModalOpen(false)}

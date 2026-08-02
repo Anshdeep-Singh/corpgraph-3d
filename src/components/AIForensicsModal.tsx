@@ -5,9 +5,8 @@ import { AIConfig, AIProvider, ForensicsReport } from '@/types/graph';
 import {
   getAIConfigFromStorage,
   saveAIConfigToStorage,
-  runAIForensicAnalysis,
+  runMultiAgent10StepForensics,
 } from '@/lib/aiForensics';
-import RiskBadge from './RiskBadge';
 import {
   X,
   Key,
@@ -19,6 +18,7 @@ import {
   EyeOff,
   ShieldAlert,
   Bot,
+  Activity,
 } from 'lucide-react';
 
 interface AIForensicsModalProps {
@@ -45,11 +45,20 @@ export default function AIForensicsModal({
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // Multi-Agent Step Progress UI state
+  const [stepProgress, setStepProgress] = useState({
+    stepNumber: 0,
+    agentName: '',
+    statusText: '',
+    percent: 0,
+  });
+
   useEffect(() => {
     if (isOpen) {
       setConfig(getAIConfigFromStorage());
       setErrorMsg(null);
       setSavedSuccess(false);
+      setStepProgress({ stepNumber: 0, agentName: '', statusText: '', percent: 0 });
     }
   }, [isOpen]);
 
@@ -72,11 +81,22 @@ export default function AIForensicsModal({
     saveAIConfigToStorage(config);
 
     try {
-      const report = await runAIForensicAnalysis(graphData, config);
+      const report = await runMultiAgent10StepForensics(
+        graphData,
+        config,
+        (stepNum, agentName, statusText, percent) => {
+          setStepProgress({
+            stepNumber: stepNum,
+            agentName,
+            statusText,
+            percent,
+          });
+        }
+      );
       onReportGenerated(report);
       onClose();
     } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to complete AI Forensic Audit');
+      setErrorMsg(err.message || 'Failed to complete 10-Step Multi-Agent Forensic Audit');
     } finally {
       setAnalyzing(false);
     }
@@ -96,13 +116,13 @@ export default function AIForensicsModal({
             </div>
             <div>
               <h2 className="text-lg font-bold tracking-tight text-white flex items-center space-x-2">
-                <span>AI Forensic Engine Config</span>
+                <span>10-Agent Forensic Engine</span>
                 <span className="text-[10px] px-2 py-0.5 bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 font-semibold rounded-full uppercase">
-                  Client-Side
+                  Multi-Agent
                 </span>
               </h2>
               <p className="text-xs text-slate-400 mt-0.5">
-                Audit graph for round-tripping cycles, shell layering & bubble risks
+                Multi-agent pipeline auditing round-tripping, shell layering & bubble patterns
               </p>
             </div>
           </div>
@@ -119,7 +139,7 @@ export default function AIForensicsModal({
           {/* Provider Select */}
           <div>
             <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
-              AI Provider
+              AI Model Provider
             </label>
             <div className="grid grid-cols-4 gap-2">
               {(['openai', 'anthropic', 'gemini', 'openrouter'] as AIProvider[]).map((p) => (
@@ -200,21 +220,40 @@ export default function AIForensicsModal({
             </div>
           </div>
 
-          {/* Mode Indicator Note */}
-          <div className="p-3 bg-slate-800/50 border border-slate-700/60 rounded-2xl text-[11px] text-slate-300 flex items-start space-x-2.5">
-            <Bot className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
-            <div>
-              {config.apiKey.trim() ? (
-                <p>
-                  <strong className="text-emerald-400">Direct LLM Mode:</strong> Invocations will be sent directly from your browser to <code className="text-slate-200">{config.provider}</code> endpoint.
-                </p>
-              ) : (
-                <p>
-                  <strong className="text-amber-400">Local Rule-Based Mode:</strong> No API key set. Runs deterministic graph topology algorithms (Tarjan DFS cycles & shell depth) locally in browser.
-                </p>
-              )}
+          {/* Multi-Agent Progress Bar when Analyzing */}
+          {analyzing ? (
+            <div className="p-4 bg-slate-800/80 border border-indigo-500/50 rounded-2xl space-y-2.5 animate-pulse">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-indigo-300 flex items-center space-x-1.5">
+                  <Activity className="w-4 h-4 text-indigo-400 animate-spin" />
+                  <span>Agent Step {stepProgress.stepNumber}/10: {stepProgress.agentName}</span>
+                </span>
+                <span className="font-mono text-indigo-400 font-bold">{stepProgress.percent}%</span>
+              </div>
+              <div className="w-full h-2 bg-slate-900 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 transition-all duration-300"
+                  style={{ width: `${stepProgress.percent}%` }}
+                />
+              </div>
+              <p className="text-[11px] text-slate-400 font-mono">{stepProgress.statusText}</p>
             </div>
-          </div>
+          ) : (
+            <div className="p-3 bg-slate-800/50 border border-slate-700/60 rounded-2xl text-[11px] text-slate-300 flex items-start space-x-2.5">
+              <Bot className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
+              <div>
+                {config.apiKey.trim() ? (
+                  <p>
+                    <strong className="text-emerald-400">Multi-Agent LLM Enabled:</strong> 10 specialized agents will execute sequentially with direct LLM calls.
+                  </p>
+                ) : (
+                  <p>
+                    <strong className="text-amber-400">Local Multi-Agent Fallback:</strong> No API key set. 10 specialized agent heuristics will execute locally in browser.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
 
           {errorMsg && (
             <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-2xl text-red-400 text-xs flex items-center space-x-2">
@@ -249,12 +288,12 @@ export default function AIForensicsModal({
             {analyzing ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Auditing Graph...</span>
+                <span>Running Pipeline...</span>
               </>
             ) : (
               <>
                 <Sparkles className="w-4 h-4 text-amber-300" />
-                <span>Run Forensic Audit</span>
+                <span>Run 10-Agent Audit</span>
               </>
             )}
           </button>

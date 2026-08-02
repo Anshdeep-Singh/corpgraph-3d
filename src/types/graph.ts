@@ -8,6 +8,7 @@ export interface GraphNode {
   country?: string;
   inceptionYear?: string;
   isFlagged?: boolean;
+  isInCycle?: boolean;
   riskScore?: number;
   forensicTag?: string;
   depth?: number;
@@ -22,6 +23,7 @@ export interface GraphLink {
   relationship: 'OWNED_BY' | 'SUBSIDIARY_OF' | 'INVESTED_IN';
   label: string;
   ownershipPercent?: string;
+  isCycleEdge?: boolean;
 }
 
 export interface GraphData {
@@ -36,10 +38,33 @@ export interface GraphData {
   tierMessage?: string;
 }
 
+export interface AgentStepReport {
+  stepNumber: number;
+  agentName: string;
+  agentRole: string;
+  status: 'pending' | 'analyzing' | 'completed' | 'failed';
+  findings: string;
+  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  evidence: string[];
+}
+
+export interface SuspiciousPattern {
+  id: string;
+  title: string;
+  category: 'ROUND_TRIPPING' | 'SHELL_LAYERING' | 'RECIPROCAL_CAPITAL' | 'VALUATION_INFLATION' | 'GOVERNANCE_CONTROL' | 'CONCENTRATION_RISK';
+  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  affectedEntities: string[];
+  description: string;
+  evidenceSummary: string;
+  remedialAction: string;
+}
+
 export interface ForensicsReport {
-  overallRiskScore: number; // 0 to 100
+  overallRiskScore: number; // 0 to 100 dynamic
   riskCategory: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
   summary: string;
+  agentStepReports: AgentStepReport[];
+  detectedPatterns: SuspiciousPattern[];
   circularInvestmentChains: {
     chain: string[]; // e.g. ["NVIDIA", "CoreWeave", "NVIDIA"]
     explanation: string;
@@ -57,6 +82,7 @@ export interface ForensicsReport {
   }[];
   flaggedNodeIds: string[];
   recommendations: string[];
+  activeCycleHighlight?: string[] | null;
 }
 
 export type AIProvider = 'openai' | 'anthropic' | 'gemini' | 'openrouter';
