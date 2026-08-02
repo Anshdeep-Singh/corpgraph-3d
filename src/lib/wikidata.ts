@@ -58,7 +58,7 @@ export async function fetchCorporateGraph(companyQuery: string): Promise<GraphDa
     id: companyName,
     name: companyName,
     type: 'target',
-    val: 28,
+    val: 8,
     color: '#3b82f6', // Bright Blue
     description,
   });
@@ -73,7 +73,7 @@ export async function fetchCorporateGraph(companyQuery: string): Promise<GraphDa
             id: pName,
             name: pName,
             type: 'parent',
-            val: 22,
+            val: 5,
             color: '#eab308', // Gold
             description: 'Parent / Holding Company',
           });
@@ -96,7 +96,7 @@ export async function fetchCorporateGraph(companyQuery: string): Promise<GraphDa
             id: sName,
             name: sName,
             type: 'subsidiary',
-            val: 16,
+            val: 4,
             color: '#22c55e', // Green
             description: 'Subsidiary / Division',
           });
@@ -119,7 +119,7 @@ export async function fetchCorporateGraph(companyQuery: string): Promise<GraphDa
             id: iName,
             name: iName,
             type: 'investor',
-            val: 18,
+            val: 5,
             color: '#a855f7', // Purple
             description: 'Institutional Investor / Stakeholder',
           });
