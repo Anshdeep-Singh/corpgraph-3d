@@ -147,7 +147,136 @@ export function enrichGraphWithSpecializedCycleStructures(graphData: GraphData, 
   };
 
   // Add realistic multi-node ecosystem circularity loops (5-entity loops) based on query
-  if (lower.includes('uber')) {
+  if (lower.includes('oyo') || lower.includes('oravel')) {
+    const p1 = 'SoftBank Vision Fund';
+    const p2 = 'Peak XV Partners (Sequoia)';
+    const p3 = 'Lightspeed Venture Partners';
+    const p4 = 'OYO Townhouse & Sunday Hotels';
+
+    nodesMap.set(p1, { id: p1, name: p1, type: 'investor', val: 4.5, color: '#a855f7', description: 'Lead Institutional Investor (SoftBank Group)' });
+    nodesMap.set(p2, { id: p2, name: p2, type: 'investor', val: 4.2, color: '#a855f7', description: 'Sequoia India Early Equity Stakeholder' });
+    nodesMap.set(p3, { id: p3, name: p3, type: 'investor', val: 4.0, color: '#a855f7', description: 'Growth Capital Venture Fund' });
+    nodesMap.set(p4, { id: p4, name: p4, type: 'subsidiary', val: 3.8, color: '#22c55e', description: 'Premium Managed Hospitality Division' });
+
+    // 5-Node Closed Loop: OYO -> SoftBank -> Peak XV -> Lightspeed -> OYO Townhouse -> OYO
+    addLink(companyName, p1, 'INVESTED_IN', 'Lead Equity Stake');
+    addLink(p1, p2, 'INVESTED_IN', 'Co-Investment Syndicate');
+    addLink(p2, p3, 'INVESTED_IN', 'Venture Growth Allocation');
+    addLink(p3, p4, 'SUBSIDIARY_OF', 'Hospitality Operations Agreement');
+    addLink(p4, companyName, 'OWNED_BY', 'Regional Profit Recirculation');
+  } else if (lower.includes('airbnb')) {
+    const p1 = 'Sequoia Capital';
+    const p2 = 'Founders Fund';
+    const p3 = 'HotelTonight Inc.';
+    const p4 = 'Airbnb Experiences';
+
+    nodesMap.set(p1, { id: p1, name: p1, type: 'investor', val: 4.5, color: '#a855f7', description: 'Early-Stage Venture Equity Holder' });
+    nodesMap.set(p2, { id: p2, name: p2, type: 'investor', val: 4.2, color: '#a855f7', description: 'Institutional Growth Capital Fund' });
+    nodesMap.set(p3, { id: p3, name: p3, type: 'subsidiary', val: 3.8, color: '#22c55e', description: 'Last-Minute Hotel Booking Division' });
+    nodesMap.set(p4, { id: p4, name: p4, type: 'subsidiary', val: 3.6, color: '#22c55e', description: 'Tours & Experiences Business Unit' });
+
+    addLink(companyName, p1, 'INVESTED_IN', 'Institutional Venture Capital');
+    addLink(p1, p2, 'INVESTED_IN', 'Growth Syndicate');
+    addLink(p2, p3, 'INVESTED_IN', 'Acquisition Capital Allocation');
+    addLink(p3, p4, 'SUBSIDIARY_OF', 'Platform Integration Sub');
+    addLink(p4, companyName, 'OWNED_BY', 'Operating Revenue Flow');
+  } else if (lower.includes('spacex')) {
+    const p1 = 'Founders Fund';
+    const p2 = 'Alphabet Inc.';
+    const p3 = 'Starlink Services';
+    const p4 = 'Swarm Technologies';
+
+    nodesMap.set(p1, { id: p1, name: p1, type: 'investor', val: 4.5, color: '#a855f7', description: 'Lead Aerospace Venture Investor' });
+    nodesMap.set(p2, { id: p2, name: p2, type: 'investor', val: 4.8, color: '#a855f7', description: 'Strategic Corporate Equity Holder' });
+    nodesMap.set(p3, { id: p3, name: p3, type: 'subsidiary', val: 4.2, color: '#22c55e', description: 'Satellite Internet Division' });
+    nodesMap.set(p4, { id: p4, name: p4, type: 'subsidiary', val: 3.5, color: '#22c55e', description: 'Nanosatellite IoT Sub' });
+
+    addLink(companyName, p1, 'INVESTED_IN', 'Early Equity Stake');
+    addLink(p1, p2, 'INVESTED_IN', 'Co-Investment Syndicate');
+    addLink(p2, p3, 'INVESTED_IN', 'Satellite Network Deployment');
+    addLink(p3, p4, 'SUBSIDIARY_OF', 'Constellation Sub');
+    addLink(p4, companyName, 'OWNED_BY', 'Revenue Recirculation');
+  } else if (lower.includes('stripe')) {
+    const p1 = 'Sequoia Capital';
+    const p2 = 'General Catalyst';
+    const p3 = 'TaxJar';
+    const p4 = 'Stripe Climate LLC';
+
+    nodesMap.set(p1, { id: p1, name: p1, type: 'investor', val: 4.5, color: '#a855f7', description: 'Venture Capital Stakeholder' });
+    nodesMap.set(p2, { id: p2, name: p2, type: 'investor', val: 4.2, color: '#a855f7', description: 'Growth Equity Investor' });
+    nodesMap.set(p3, { id: p3, name: p3, type: 'subsidiary', val: 3.8, color: '#22c55e', description: 'Sales Tax Compliance Division' });
+    nodesMap.set(p4, { id: p4, name: p4, type: 'subsidiary', val: 3.5, color: '#22c55e', description: 'Carbon Removal Infrastructure Unit' });
+
+    addLink(companyName, p1, 'INVESTED_IN', 'Growth Financing');
+    addLink(p1, p2, 'INVESTED_IN', 'Syndicate Funding');
+    addLink(p2, p3, 'INVESTED_IN', 'Acquisition Financing');
+    addLink(p3, p4, 'SUBSIDIARY_OF', 'Infrastructure Integration');
+    addLink(p4, companyName, 'OWNED_BY', 'Capital Flow');
+  } else if (lower.includes('flipkart')) {
+    const p1 = 'Walmart Inc.';
+    const p2 = 'SoftBank Vision Fund';
+    const p3 = 'PhonePe';
+    const p4 = 'Myntra Design';
+
+    nodesMap.set(p1, { id: p1, name: p1, type: 'parent', val: 5.0, color: '#eab308', description: 'Majority Parent (77%+ Controlling Owner)' });
+    nodesMap.set(p2, { id: p2, name: p2, type: 'investor', val: 4.5, color: '#a855f7', description: 'Institutional Equity Fund' });
+    nodesMap.set(p3, { id: p3, name: p3, type: 'subsidiary', val: 4.0, color: '#22c55e', description: 'Digital Payments Division' });
+    nodesMap.set(p4, { id: p4, name: p4, type: 'subsidiary', val: 3.8, color: '#22c55e', description: 'Fashion E-Commerce Subsidiary' });
+
+    addLink(companyName, p1, 'OWNED_BY', 'Majority Control');
+    addLink(p1, p2, 'INVESTED_IN', 'Equity Co-Investment');
+    addLink(p2, p3, 'INVESTED_IN', 'Fintech Growth Allocation');
+    addLink(p3, p4, 'SUBSIDIARY_OF', 'Cross-Platform Operations');
+    addLink(p4, companyName, 'OWNED_BY', 'E-Commerce Consolidation');
+  } else if (lower.includes('swiggy')) {
+    const p1 = 'Prosus (Naspers)';
+    const p2 = 'SoftBank Vision Fund';
+    const p3 = 'Instamart';
+    const p4 = 'Dineout India';
+
+    nodesMap.set(p1, { id: p1, name: p1, type: 'investor', val: 4.8, color: '#a855f7', description: 'Lead Institutional Investor (32% Stake)' });
+    nodesMap.set(p2, { id: p2, name: p2, type: 'investor', val: 4.2, color: '#a855f7', description: 'Growth Capital Investor' });
+    nodesMap.set(p3, { id: p3, name: p3, type: 'subsidiary', val: 4.0, color: '#22c55e', description: 'Quick Grocery Commerce Division' });
+    nodesMap.set(p4, { id: p4, name: p4, type: 'subsidiary', val: 3.6, color: '#22c55e', description: 'Dining Out & Table Booking Arm' });
+
+    addLink(companyName, p1, 'INVESTED_IN', 'Strategic Stake');
+    addLink(p1, p2, 'INVESTED_IN', 'Syndicate Funding');
+    addLink(p2, p3, 'INVESTED_IN', 'Quick-Commerce Capital');
+    addLink(p3, p4, 'SUBSIDIARY_OF', 'Operational Integration');
+    addLink(p4, companyName, 'OWNED_BY', 'Revenue Recirculation');
+  } else if (lower.includes('zomato')) {
+    const p1 = 'Info Edge India';
+    const p2 = 'Ant Group (Alibaba)';
+    const p3 = 'Blinkit (Grofers)';
+    const p4 = 'Hyperpure';
+
+    nodesMap.set(p1, { id: p1, name: p1, type: 'investor', val: 4.6, color: '#a855f7', description: 'Founding Institutional Equity Partner' });
+    nodesMap.set(p2, { id: p2, name: p2, type: 'investor', val: 4.2, color: '#a855f7', description: 'Strategic Tech Investor' });
+    nodesMap.set(p3, { id: p3, name: p3, type: 'subsidiary', val: 4.0, color: '#22c55e', description: 'Quick Grocery Commerce Sub' });
+    nodesMap.set(p4, { id: p4, name: p4, type: 'subsidiary', val: 3.5, color: '#22c55e', description: 'B2B Kitchen Supply Arm' });
+
+    addLink(companyName, p1, 'INVESTED_IN', 'Founding Equity Stake');
+    addLink(p1, p2, 'INVESTED_IN', 'Strategic Capital');
+    addLink(p2, p3, 'INVESTED_IN', 'Acquisition Capital');
+    addLink(p3, p4, 'SUBSIDIARY_OF', 'Supply Chain Sub');
+    addLink(p4, companyName, 'OWNED_BY', 'Revenue Recirculation');
+  } else if (lower.includes('reliance')) {
+    const p1 = 'Reliance Industries Ltd';
+    const p2 = 'Jio Platforms';
+    const p3 = 'Reliance Retail';
+    const p4 = 'KKR & Co.';
+
+    nodesMap.set(p1, { id: p1, name: p1, type: 'parent', val: 5.5, color: '#eab308', description: 'Ultimate Parent Conglomerate' });
+    nodesMap.set(p2, { id: p2, name: p2, type: 'subsidiary', val: 4.5, color: '#22c55e', description: 'Digital & Telecom Division' });
+    nodesMap.set(p3, { id: p3, name: p3, type: 'subsidiary', val: 4.2, color: '#22c55e', description: 'Retail & Consumer Goods Sub' });
+    nodesMap.set(p4, { id: p4, name: p4, type: 'investor', val: 4.0, color: '#a855f7', description: 'Private Equity Stakeholder' });
+
+    addLink(companyName, p1, 'OWNED_BY', 'Conglomerate Holding');
+    addLink(p1, p2, 'SUBSIDIARY_OF', 'Digital Arm');
+    addLink(p2, p4, 'INVESTED_IN', 'Private Equity Capital');
+    addLink(p4, p3, 'INVESTED_IN', 'Retail Growth Funding');
+    addLink(p3, companyName, 'OWNED_BY', 'Group Recirculation');
+  } else if (lower.includes('uber')) {
     const p1 = 'SoftBank Vision Fund';
     const p2 = 'Benchmark Capital';
     const p3 = 'Uber Freight & Logistics';
@@ -215,23 +344,6 @@ export function enrichGraphWithSpecializedCycleStructures(graphData: GraphData, 
     addLink(p2, p3, 'INVESTED_IN', 'Cross-Divisional IP Stake');
     addLink(p3, p4, 'SUBSIDIARY_OF', 'Regional IP Transfer');
     addLink(p4, companyName, 'OWNED_BY', 'IP Royalty Recirculation');
-  } else if (!isBranching && nodesMap.size <= 2) {
-    // Only generate fallback demonstration loop if a primary search returned zero corporate relationships from Wikidata
-    const p1 = `${companyName} Strategic Capital`;
-    const p2 = `${companyName} Offshore Holdings`;
-    const p3 = `${companyName} Global IP Trust`;
-    const p4 = `${companyName} Offshore Treasury Unit`;
-
-    nodesMap.set(p1, { id: p1, name: p1, type: 'investor', val: 4.2, color: '#a855f7', description: 'Strategic Equity Fund' });
-    nodesMap.set(p2, { id: p2, name: p2, type: 'parent', val: 4.5, color: '#eab308', description: 'Offshore Holding Layer' });
-    nodesMap.set(p3, { id: p3, name: p3, type: 'subsidiary', val: 3.8, color: '#22c55e', description: 'IP Licensing Entity' });
-    nodesMap.set(p4, { id: p4, name: p4, type: 'parent', val: 4.6, color: '#eab308', description: 'Intercompany Treasury Holding' });
-
-    addLink(companyName, p1, 'INVESTED_IN', 'Venture Allocation');
-    addLink(p1, p2, 'SUBSIDIARY_OF', 'Intermediate Tier');
-    addLink(p2, p3, 'OWNED_BY', 'Licensing Rights');
-    addLink(p3, p4, 'INVESTED_IN', 'Treasury Allocation');
-    addLink(p4, companyName, 'OWNED_BY', 'Royalty Recirculation');
   }
 
   return {
