@@ -15,6 +15,14 @@ export interface GraphNode {
   x?: number;
   y?: number;
   z?: number;
+  
+  // Dual-Company & Path Finding fields
+  isTargetA?: boolean;
+  isTargetB?: boolean;
+  isBridgeNode?: boolean; // Connects to both company trees (e.g. shared investor/parent)
+  isPathNode?: boolean;   // On shortest/connecting route
+  belongsToA?: boolean;  // Originates from Company A tree
+  belongsToB?: boolean;  // Originates from Company B tree
 }
 
 export interface GraphLink {
@@ -24,6 +32,10 @@ export interface GraphLink {
   label: string;
   ownershipPercent?: string;
   isCycleEdge?: boolean;
+
+  // Dual-Company & Path Finding fields
+  isBridgeLink?: boolean;
+  isPathLink?: boolean;
 }
 
 export interface GraphData {
@@ -36,6 +48,42 @@ export interface GraphData {
   };
   tierUsed?: number;
   tierMessage?: string;
+}
+
+export interface ConnectionPath {
+  id: string;
+  nodes: string[]; // Ordered list of node IDs forming the route
+  relationships: string[]; // Edge labels between consecutive nodes
+  length: number; // Number of hops
+  description: string;
+}
+
+export interface CommonConnection {
+  id: string;
+  nodeId: string;
+  name: string;
+  type: 'COMMON_INVESTOR' | 'COMMON_PARENT' | 'SHARED_SUBSIDIARY' | 'INDIRECT_BRIDGE';
+  description: string;
+  connectionToA: string; // Relationship to Target A
+  connectionToB: string; // Relationship to Target B
+}
+
+export interface DualGraphData extends GraphData {
+  searchMode: 'dual';
+  targetCompanyA: {
+    name: string;
+    description: string;
+    wikidataId: string;
+  };
+  targetCompanyB: {
+    name: string;
+    description: string;
+    wikidataId: string;
+  };
+  commonConnections: CommonConnection[];
+  connectionPaths: ConnectionPath[];
+  degreeOfSeparation: number; // e.g. 1 = direct link, 2 = 1 intermediate, etc.
+  relationshipSummary: string;
 }
 
 export interface AgentStepReport {

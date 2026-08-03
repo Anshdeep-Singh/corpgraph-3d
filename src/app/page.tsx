@@ -3,22 +3,22 @@
 import { useState, useEffect, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { fetchCorporateGraph, branchCorporateGraph } from '@/lib/wikidata';
+import { fetchDualCompanyGraph } from '@/lib/relationshipFinder';
 import { exportGraphToPDF } from '@/lib/pdfExporter';
-import { GraphData, GraphNode, ForensicsReport } from '@/types/graph';
+import { GraphData, DualGraphData, GraphNode, ForensicsReport } from '@/types/graph';
 import Header from '@/components/Header';
 import MobileDrawer from '@/components/MobileDrawer';
 import InspectorSheet from '@/components/InspectorSheet';
+import RelationshipSheet from '@/components/RelationshipSheet';
 import AIForensicsModal from '@/components/AIForensicsModal';
 import {
   Sparkles,
   Layers,
-  GitFork,
   Loader2,
   AlertCircle,
   CheckCircle2,
 } from 'lucide-react';
 
-// Dynamically import 3D Graph viewer to prevent SSR WebGL issues
 const GraphViewer3D = dynamic(() => import('@/components/GraphViewer3D'), {
   ssr: false,
   loading: () => (
@@ -32,8 +32,10 @@ const GraphViewer3D = dynamic(() => import('@/components/GraphViewer3D'), {
 const QUICK_COMPANIES = ['Tesla', 'Google', 'NVIDIA', 'Apple', 'Microsoft', 'Amazon'];
 
 export default function HomePage() {
+  const [searchMode, setSearchMode] = useState<'single' | 'dual'>('single');
   const [searchQuery, setSearchQuery] = useState('Tesla');
-  const [graphData, setGraphData] = useState<GraphData | null>(null);
+  const [searchQueryB, setSearchQueryB] = useState('NVIDIA');
+  const [graphData, setGraphData] = useState<GraphData | DualGraphData | null>(null);
   const [loading, setLoading] = useState(false);
   const [branching, setBranching] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,6 +47,7 @@ export default function HomePage() {
   // UI Control States
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [relationshipSheetOpen, setRelationshipSheetOpen] = useState(false);
   const [forensicsReport, setForensicsReport] = useState<ForensicsReport | null>(null);
   const [activeCycleHighlight, setActiveCycleHighlight] = useState<string[] | null>(null);
   const [depthLevel, setDepthLevel] = useState(2);
@@ -63,9 +66,11 @@ export default function HomePage() {
     setTimeout(() => setToastMessage(null), 4500);
   };
 
-  const handleSearch = async (queryToSearch?: string) => {
-    const q = queryToSearch || searchQuery;
-    if (!q.trim()) return;
+  const handleSearch = async (qA?: string, qB?: string) => {
+    const compA = qA || searchQuery;
+    const compB = qB || searchQueryB;
+
+    if (!compA.trim()) return;
 
     setLoading(true);
     setError(null);
@@ -74,20 +79,36 @@ export default function HomePage() {
     setForensicsReport(null);
     setActiveCycleHighlight(null);
 
-    // Update recent searches
-    setRecentSearches((prev) => Array.from(new Set([q, ...prev])).slice(0, 5));
-
-    try {
-      const data = await fetchCorporateGraph(q, {
-        onToastMessage: showToast,
-      });
-      setGraphData(data);
-      setBranchedEntities([data.targetCompany.name]);
-    } catch (err: any) {
-      setError(err.message || 'Failed to fetch corporate relationships');
-      setGraphData(null);
-    } finally {
-      setLoading(false);
+    if (searchMode === 'dual' && compB.trim()) {
+      // Dual-Company Relationship Finder Mode
+      try {
+        const dualData = await fetchDualCompanyGraph(compA, compB, {
+          onToastMessage: showToast,
+        });
+        setGraphData(dualData);
+        setRelationshipSheetOpen(true);
+      } catch (err: any) {
+        setError(err.message || 'Failed to fetch dual corporate relationship graph');
+        setGraphData(null);
+      } finally {
+        setLoading(false);
+      }
+    } else {
+      // Single Entity Search Mode
+      setRecentSearches((prev) => Array.from(new Set([compA, ...prev])).slice(0, 5));
+      try {
+        const data = await fetchCorporateGraph(compA, {
+          onToastMessage: showToast,
+        });
+        setGraphData(data);
+        setBranchedEntities([data.targetCompany.name]);
+        setRelationshipSheetOpen(false);
+      } catch (err: any) {
+        setError(err.message || 'Failed to fetch corporate relationships');
+        setGraphData(null);
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
@@ -95,13 +116,13 @@ export default function HomePage() {
     handleSearch('Tesla');
   }, []);
 
-  // Keyboard Shortcuts Handler: Esc (close), Space (reset camera)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setSelectedNode(null);
         setDrawerOpen(false);
         setAiModalOpen(false);
+        setRelationshipSheetOpen(false);
       } else if (e.key === ' ' && graphRef.current && !e.target) {
         graphRef.current.zoomToFit(1200, 50);
       }
@@ -125,22 +146,10 @@ export default function HomePage() {
       const addedNodes = updatedGraph.nodes.length - prevNodesCount;
       const addedLinks = updatedGraph.links.length - prevLinksCount;
 
-      if (forensicsReport) {
-        updatedGraph.nodes.forEach((node) => {
-          if (forensicsReport.flaggedNodeIds.includes(node.id)) {
-            node.isFlagged = true;
-          }
-        });
-      }
-
       setGraphData(updatedGraph);
-      setBranchedEntities((prev) =>
-        prev.includes(entityName) ? prev : [...prev, entityName]
-      );
+      setBranchedEntities((prev) => (prev.includes(entityName) ? prev : [...prev, entityName]));
 
-      showToast(
-        `Branched out "${entityName}": +${addedNodes} new entities, +${addedLinks} connections`
-      );
+      showToast(`Branched out "${entityName}": +${addedNodes} entities, +${addedLinks} connections`);
     } catch (err: any) {
       alert(`Could not branch out for "${entityName}": ${err.message || 'Entity not found'}`);
     } finally {
@@ -161,13 +170,30 @@ export default function HomePage() {
     }
   };
 
+  const handleFocusNodeById = (nodeId: string) => {
+    if (!graphData) return;
+    const targetNode = graphData.nodes.find(
+      (n) => n.id === nodeId || n.name?.toLowerCase() === nodeId.toLowerCase()
+    );
+    if (targetNode) {
+      setSelectedNode(targetNode);
+      if (graphRef.current && targetNode.x !== undefined && targetNode.y !== undefined && targetNode.z !== undefined) {
+        const x = targetNode.x;
+        const y = targetNode.y;
+        const z = targetNode.z;
+        const distance = 80;
+        const distRatio = 1 + distance / (Math.hypot(x, y, z) || 1);
+        graphRef.current.cameraPosition(
+          { x: x * distRatio, y: y * distRatio, z: z * distRatio },
+          { x, y, z },
+          1500
+        );
+      }
+    }
+  };
+
   const handleFocusCamera = (node: GraphNode) => {
-    if (
-      graphRef.current &&
-      node.x !== undefined &&
-      node.y !== undefined &&
-      node.z !== undefined
-    ) {
+    if (graphRef.current && node.x !== undefined && node.y !== undefined && node.z !== undefined) {
       const x = node.x;
       const y = node.y;
       const z = node.z;
@@ -185,11 +211,9 @@ export default function HomePage() {
     setActiveCycleHighlight(cycleNodes);
     if (!graphData) return;
 
-    // Find cycle nodes in graph data
     const matched = graphData.nodes.filter((n) => cycleNodes.includes(n.id));
     if (matched.length > 0) {
       setSelectedNode(matched[0]);
-      // Calculate geometric center of cycle
       const avgX = matched.reduce((acc, n) => acc + (n.x || 0), 0) / matched.length;
       const avgY = matched.reduce((acc, n) => acc + (n.y || 0), 0) / matched.length;
       const avgZ = matched.reduce((acc, n) => acc + (n.z || 0), 0) / matched.length;
@@ -202,7 +226,7 @@ export default function HomePage() {
         );
       }
     }
-    showToast(`Focused 3D camera on ${cycleNodes.length}-node loop: ${cycleNodes.join(' ➔ ')}`);
+    showToast(`Focused 3D camera on ${cycleNodes.length}-node loop`);
   };
 
   const handleReportGenerated = (report: ForensicsReport) => {
@@ -229,15 +253,15 @@ export default function HomePage() {
     });
 
     showToast(
-      `10-Agent Forensic Audit Complete: Overall Risk Category ${report.riskCategory} (${report.overallRiskScore}/100)`
+      `Forensic Audit Complete: Risk Category ${report.riskCategory} (${report.overallRiskScore}/100)`
     );
   };
 
-  const filteredGraphData: GraphData | null = graphData
+  const filteredGraphData = graphData
     ? {
         ...graphData,
         nodes: graphData.nodes.filter((node) => {
-          if (node.type === 'target') return true;
+          if (node.type === 'target' || node.isTargetA || node.isTargetB || node.isBridgeNode) return true;
           if (node.type === 'parent' && !nodeFilters.parents) return false;
           if (node.type === 'subsidiary' && !nodeFilters.subsidiaries) return false;
           if (node.type === 'investor' && !nodeFilters.investors) return false;
@@ -255,6 +279,8 @@ export default function HomePage() {
     });
   };
 
+  const isDualData = (graphData as DualGraphData)?.searchMode === 'dual';
+
   return (
     <div className="flex flex-col h-screen w-screen bg-slate-950 text-slate-100 overflow-hidden font-sans">
       {/* Toast Banner */}
@@ -267,8 +293,12 @@ export default function HomePage() {
 
       {/* Header */}
       <Header
+        searchMode={searchMode}
+        setSearchMode={setSearchMode}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
+        searchQueryB={searchQueryB}
+        setSearchQueryB={setSearchQueryB}
         onSearch={handleSearch}
         loading={loading}
         onOpenDrawer={() => setDrawerOpen(true)}
@@ -283,26 +313,28 @@ export default function HomePage() {
       {/* Main Viewport Container */}
       <div className="relative flex-1 w-full h-full overflow-hidden">
         {/* Quick Suggestion Pills */}
-        <div className="hidden sm:flex absolute top-4 left-6 z-10 items-center space-x-2 bg-slate-900/80 backdrop-blur-md p-1.5 rounded-2xl border border-slate-800/80 shadow-xl">
-          <Sparkles className="w-4 h-4 text-amber-400 ml-2 mr-1" />
-          <span className="text-xs text-slate-400 font-medium mr-1">Quick:</span>
-          {QUICK_COMPANIES.map((company) => (
-            <button
-              key={company}
-              onClick={() => {
-                setSearchQuery(company);
-                handleSearch(company);
-              }}
-              className={`px-2.5 py-1 text-xs font-medium rounded-xl transition-all ${
-                searchQuery.toLowerCase() === company.toLowerCase()
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'bg-slate-800/60 hover:bg-slate-700 text-slate-300'
-              }`}
-            >
-              {company}
-            </button>
-          ))}
-        </div>
+        {searchMode === 'single' && (
+          <div className="hidden sm:flex absolute top-4 left-6 z-10 items-center space-x-2 bg-slate-900/80 backdrop-blur-md p-1.5 rounded-2xl border border-slate-800/80 shadow-xl">
+            <Sparkles className="w-4 h-4 text-amber-400 ml-2 mr-1" />
+            <span className="text-xs text-slate-400 font-medium mr-1">Quick:</span>
+            {QUICK_COMPANIES.map((company) => (
+              <button
+                key={company}
+                onClick={() => {
+                  setSearchQuery(company);
+                  handleSearch(company);
+                }}
+                className={`px-2.5 py-1 text-xs font-medium rounded-xl transition-all ${
+                  searchQuery.toLowerCase() === company.toLowerCase()
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'bg-slate-800/60 hover:bg-slate-700 text-slate-300'
+                }`}
+              >
+                {company}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Graph Legend Overlay */}
         <div className="absolute bottom-6 left-6 z-10 hidden md:block bg-slate-900/85 backdrop-blur-md border border-slate-800/80 p-4 rounded-2xl shadow-2xl text-xs space-y-2.5 min-w-[220px]">
@@ -318,37 +350,54 @@ export default function HomePage() {
             )}
           </div>
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="flex items-center space-x-2">
-                <span className="w-2.5 h-2.5 rounded-sm bg-blue-500 shadow-sm shadow-blue-500/50" />
-                <span className="text-slate-300 font-medium">Target (Icosahedron)</span>
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="flex items-center space-x-2">
-                <span className="w-2.5 h-2.5 bg-amber-500 shadow-sm shadow-amber-500/50" />
-                <span className="text-slate-300">Parent Holding (Cube)</span>
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="flex items-center space-x-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-green-500 shadow-sm shadow-green-500/50" />
-                <span className="text-slate-300">Subsidiary Unit (Cylinder)</span>
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="flex items-center space-x-2">
-                <span className="w-2.5 h-2.5 rotate-45 bg-purple-500 shadow-sm shadow-purple-500/50" />
-                <span className="text-slate-300">Investor (Diamond)</span>
-              </span>
-            </div>
-            {forensicsReport && (
-              <div className="flex items-center justify-between pt-1 border-t border-slate-800">
-                <span className="flex items-center space-x-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
-                  <span className="text-red-400 font-semibold">Cycle / Flagged Risk</span>
-                </span>
-              </div>
+            {isDualData ? (
+              <>
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center space-x-2">
+                    <span className="w-2.5 h-2.5 rounded-sm bg-cyan-400 shadow-sm shadow-cyan-400/50" />
+                    <span className="text-slate-300 font-medium">Target Company A</span>
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center space-x-2">
+                    <span className="w-2.5 h-2.5 rounded-sm bg-pink-500 shadow-sm shadow-pink-500/50" />
+                    <span className="text-slate-300 font-medium">Target Company B</span>
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center space-x-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-400 shadow-sm shadow-amber-400/50" />
+                    <span className="text-amber-300 font-bold">Shared / Common Bridge</span>
+                  </span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center space-x-2">
+                    <span className="w-2.5 h-2.5 rounded-sm bg-blue-500 shadow-sm shadow-blue-500/50" />
+                    <span className="text-slate-300 font-medium">Target (Icosahedron)</span>
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center space-x-2">
+                    <span className="w-2.5 h-2.5 bg-amber-500 shadow-sm shadow-amber-500/50" />
+                    <span className="text-slate-300">Parent Holding (Cube)</span>
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center space-x-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-green-500 shadow-sm shadow-green-500/50" />
+                    <span className="text-slate-300">Subsidiary Unit (Cylinder)</span>
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center space-x-2">
+                    <span className="w-2.5 h-2.5 rotate-45 bg-purple-500 shadow-sm shadow-purple-500/50" />
+                    <span className="text-slate-300">Investor (Diamond)</span>
+                  </span>
+                </div>
+              </>
             )}
           </div>
         </div>
@@ -359,7 +408,11 @@ export default function HomePage() {
             <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm z-30 flex flex-col items-center justify-center text-slate-300">
               <Loader2 className="w-10 h-10 animate-spin text-blue-500 mb-4" />
               <p className="text-sm font-semibold">
-                {branching ? 'Branching Graph Relationships...' : 'Fetching Corporate Graph...'}
+                {branching
+                  ? 'Branching Graph Relationships...'
+                  : isDualData || searchMode === 'dual'
+                  ? 'Analyzing Dual Company Relationships & Common Links...'
+                  : 'Fetching Corporate Graph...'}
               </p>
             </div>
           )}
@@ -400,7 +453,7 @@ export default function HomePage() {
           onResetGraph={() => handleSearch(graphData?.targetCompany.name || searchQuery)}
         />
 
-        {/* Inspector Sheet */}
+        {/* Single Node Inspector Sheet */}
         {selectedNode && (
           <InspectorSheet
             selectedNode={selectedNode}
@@ -412,6 +465,16 @@ export default function HomePage() {
             forensicsReport={forensicsReport}
             onOpenAIForensics={() => setAiModalOpen(true)}
             onHighlightCycle={handleHighlightCycle}
+          />
+        )}
+
+        {/* Dual Relationship Sheet */}
+        {isDualData && (
+          <RelationshipSheet
+            dualData={graphData as DualGraphData}
+            isOpen={relationshipSheetOpen}
+            onClose={() => setRelationshipSheetOpen(false)}
+            onFocusNode={handleFocusNodeById}
           />
         )}
 

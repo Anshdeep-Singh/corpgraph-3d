@@ -5,11 +5,11 @@ import ForceGraph3D from '3d-force-graph';
 import SpriteText from 'three-spritetext';
 import * as THREE from 'three';
 import * as d3 from 'd3-force-3d';
-import { GraphData, GraphNode, ForensicsReport } from '@/types/graph';
-import { Eye, Flame } from 'lucide-react';
+import { GraphData, GraphNode, ForensicsReport, DualGraphData } from '@/types/graph';
+import { Eye, Flame, GitCompare } from 'lucide-react';
 
 interface GraphViewer3DProps {
-  data: GraphData;
+  data: GraphData | DualGraphData;
   onSelectNode: (node: GraphNode) => void;
   graphRefContainer: React.MutableRefObject<any>;
   forensicsReport?: ForensicsReport | null;
@@ -34,6 +34,8 @@ export default function GraphViewer3D({
   const graphInstanceRef = useRef<any>(null);
   const [isolatedCycleMode, setIsolatedCycleMode] = useState(false);
 
+  const isDualMode = (data as DualGraphData)?.searchMode === 'dual';
+
   // Extract active cycle chain nodes
   const activeCycleChain =
     activeCycleHighlight ||
@@ -49,7 +51,6 @@ export default function GraphViewer3D({
     }
   });
 
-  // Fallback: Populate cycleNodeIds from graph links tagged with isCycleEdge or nodes tagged with isInCycle
   if (data?.links) {
     data.links.forEach((l) => {
       if (l.isCycleEdge) {
@@ -67,10 +68,8 @@ export default function GraphViewer3D({
     });
   }
 
-  // Unique sequence of entities in cycle
   const cleanCycleChain = Array.from(new Set(activeCycleChain));
 
-  // Build edge keys for the cycle chain (handles any cycle length N >= 2, closing the loop)
   const cycleEdgeKeys = new Set<string>();
   if (cleanCycleChain.length >= 2) {
     const len = cleanCycleChain.length;
@@ -94,7 +93,6 @@ export default function GraphViewer3D({
     const srcName = typeof link.source === 'object' ? String(link.source.name || '') : '';
     const tgtName = typeof link.target === 'object' ? String(link.target.name || '') : '';
 
-    // Direct match against sequential cycle edge pairs
     if (
       cycleEdgeKeys.has(`${srcId}->${tgtId}`) ||
       cycleEdgeKeys.has(`${tgtId}->${srcId}`) ||
@@ -103,22 +101,15 @@ export default function GraphViewer3D({
       return true;
     }
 
-    // Match if both endpoints belong to active cycle node set
     const srcInCycle = cycleNodeIds.has(srcId) || (srcName !== '' && cycleNodeIds.has(srcName));
     const tgtInCycle = cycleNodeIds.has(tgtId) || (tgtName !== '' && cycleNodeIds.has(tgtName));
 
-    if (srcInCycle && tgtInCycle) {
-      return true;
-    }
-
-    if (link.isCycleEdge && (srcInCycle || tgtInCycle)) {
-      return true;
-    }
+    if (srcInCycle && tgtInCycle) return true;
+    if (link.isCycleEdge && (srcInCycle || tgtInCycle)) return true;
 
     return false;
   };
 
-  // Filter data if isolated cycle mode is toggled
   const activeGraphData: GraphData =
     isolatedCycleMode && cycleNodeIds.size > 0
       ? {
@@ -131,18 +122,16 @@ export default function GraphViewer3D({
   useEffect(() => {
     if (!containerRef.current) return;
 
-    // Clear previous canvas
     containerRef.current.innerHTML = '';
 
     const width = containerRef.current.clientWidth || window.innerWidth;
     const height = containerRef.current.clientHeight || window.innerHeight;
 
-    // Sanitize nodes & links to prevent d3 object-reference corruption across re-renders
     const rootTargetName = data.targetCompany.name;
     const sanitizedNodes = activeGraphData.nodes.map((n) => {
       const copy: any = { ...n };
-      // FIX TARGET NODE (NVIDIA/Root Company) AT ORIGIN (0,0,0)
-      if (copy.type === 'target' || copy.id === rootTargetName || copy.name === rootTargetName) {
+      // FIX TARGET NODE(S) IF SINGLE MODE
+      if (!isDualMode && (copy.type === 'target' || copy.id === rootTargetName || copy.name === rootTargetName)) {
         copy.fx = 0;
         copy.fy = 0;
         copy.fz = 0;
@@ -167,47 +156,45 @@ export default function GraphViewer3D({
       .graphData(sanitizedGraphData)
       .nodeId('id')
       .nodeVal((node: any) => {
+        if (node.isTargetA || node.isTargetB) return 8.0;
+        if (node.isBridgeNode) return 6.5;
         if (isCycleNode(node.id, node.name)) return 6.5;
         return node.val || 4.0;
       })
       .nodeColor((node: any) => {
-        if (isCycleNode(node.id, node.name)) return '#ef4444'; // Crimson glow for loop nodes
-        if (node.isFlagged) return '#f97316'; // Orange for flagged nodes
+        if (node.isTargetA) return '#00f0ff'; // Cyan
+        if (node.isTargetB) return '#ff007a'; // Magenta
+        if (node.isBridgeNode) return '#ffd700'; // Amber/Gold
+        if (isCycleNode(node.id, node.name)) return '#ef4444'; // Crimson
+        if (node.isFlagged) return '#f97316';
         return node.color || '#3b82f6';
       })
       .nodeThreeObject((node: any) => {
         const group = new THREE.Group();
         const inCycle = isCycleNode(node.id, node.name);
+        const isBridge = node.isBridgeNode;
+        const isTargetA = node.isTargetA;
+        const isTargetB = node.isTargetB;
 
-        const radius = inCycle ? 6.5 : node.isFlagged ? 5.5 : node.val || 4.0;
-        const color = inCycle ? '#ef4444' : node.isFlagged ? '#f97316' : node.color || '#3b82f6';
+        const radius = isTargetA || isTargetB ? 8.0 : isBridge ? 6.5 : inCycle ? 6.5 : node.isFlagged ? 5.5 : node.val || 4.0;
+        const color = isTargetA ? '#00f0ff' : isTargetB ? '#ff007a' : isBridge ? '#ffd700' : inCycle ? '#ef4444' : node.isFlagged ? '#f97316' : node.color || '#3b82f6';
 
         let geometry: THREE.BufferGeometry;
 
-        // DISTINCT 3D GEOMETRIES ACCORDING TO CORPORATE ENTITY TYPE
         switch (node.type) {
           case 'parent':
-            // Solid Cube for Parent / Holding Companies
             geometry = new THREE.BoxGeometry(radius * 1.5, radius * 1.5, radius * 1.5);
             break;
-
           case 'subsidiary':
-            // Column / Cylinder for Subsidiaries and Operating Units
             geometry = new THREE.CylinderGeometry(radius * 0.85, radius * 1.1, radius * 1.8, 16);
             break;
-
           case 'investor':
-            // Sparkling Diamond / Octahedron for Institutional Investors
             geometry = new THREE.OctahedronGeometry(radius * 1.35, 0);
             break;
-
           case 'target':
-            // Crystalline Faceted Icosahedron for Root Target Company
             geometry = new THREE.IcosahedronGeometry(radius * 1.25, 1);
             break;
-
           default:
-            // Smooth Sphere / Orb for general entities
             geometry = new THREE.SphereGeometry(radius, 24, 24);
             break;
         }
@@ -217,7 +204,7 @@ export default function GraphViewer3D({
           roughness: node.type === 'investor' ? 0.15 : 0.25,
           metalness: node.type === 'investor' ? 0.45 : node.type === 'parent' ? 0.3 : 0.15,
           emissive: new THREE.Color(color),
-          emissiveIntensity: inCycle ? 0.85 : node.isFlagged ? 0.5 : 0.25,
+          emissiveIntensity: isTargetA || isTargetB ? 0.9 : isBridge ? 0.8 : inCycle ? 0.85 : node.isFlagged ? 0.5 : 0.25,
           transparent: true,
           opacity: 0.95,
         });
@@ -225,22 +212,23 @@ export default function GraphViewer3D({
         const mesh = new THREE.Mesh(geometry, material);
         group.add(mesh);
 
-        // Wireframe Edge Outline for crisp geometric definition on cubes, cylinders, diamonds & crystalline shapes
+        // Wireframe Edge Outline
         const edges = new THREE.EdgesGeometry(geometry);
         const lineMat = new THREE.LineBasicMaterial({
-          color: inCycle ? '#fca5a5' : '#ffffff',
+          color: isTargetA ? '#a5f3fc' : isTargetB ? '#fbcfe8' : isBridge ? '#fef08a' : inCycle ? '#fca5a5' : '#ffffff',
           transparent: true,
-          opacity: inCycle ? 0.75 : 0.35,
+          opacity: isTargetA || isTargetB || isBridge || inCycle ? 0.8 : 0.35,
           linewidth: 1,
         });
         const wireframe = new THREE.LineSegments(edges, lineMat);
         group.add(wireframe);
 
-        // Animated double aura ring for active cycle loop nodes
-        if (inCycle) {
+        // Ring Halo Aura for Bridge or Target or Cycle Nodes
+        if (isBridge || isTargetA || isTargetB || inCycle) {
+          const ringColor = isTargetA ? '#00f0ff' : isTargetB ? '#ff007a' : isBridge ? '#ffd700' : '#ef4444';
           const ringGeo = new THREE.RingGeometry(radius + 1.8, radius + 3.2, 32);
           const ringMat = new THREE.MeshBasicMaterial({
-            color: '#ef4444',
+            color: ringColor,
             side: THREE.DoubleSide,
             transparent: true,
             opacity: 0.85,
@@ -248,26 +236,15 @@ export default function GraphViewer3D({
           const ring = new THREE.Mesh(ringGeo, ringMat);
           ring.rotation.x = Math.PI / 2;
           group.add(ring);
-
-          const ringGeo2 = new THREE.RingGeometry(radius + 3.8, radius + 4.5, 32);
-          const ringMat2 = new THREE.MeshBasicMaterial({
-            color: '#f87171',
-            side: THREE.DoubleSide,
-            transparent: true,
-            opacity: 0.5,
-          });
-          const ring2 = new THREE.Mesh(ringGeo2, ringMat2);
-          ring2.rotation.y = Math.PI / 2;
-          group.add(ring2);
         }
 
-        // Billboard Sprite Text Label
+        // Sprite Label
         const sprite = new SpriteText(node.name);
         sprite.color = '#f8fafc';
-        sprite.textHeight = inCycle ? 3.0 : node.type === 'target' ? 2.8 : 2.2;
-        sprite.backgroundColor = inCycle ? 'rgba(127, 29, 29, 0.92)' : 'rgba(15, 23, 42, 0.85)';
-        sprite.borderColor = inCycle ? '#ef4444' : node.isFlagged ? '#f97316' : node.color || '#3b82f6';
-        sprite.borderWidth = inCycle ? 1.5 : 0.8;
+        sprite.textHeight = isTargetA || isTargetB ? 3.4 : isBridge ? 2.8 : inCycle ? 3.0 : 2.2;
+        sprite.backgroundColor = isTargetA ? 'rgba(8, 47, 73, 0.92)' : isTargetB ? 'rgba(70, 10, 40, 0.92)' : isBridge ? 'rgba(74, 52, 0, 0.92)' : inCycle ? 'rgba(127, 29, 29, 0.92)' : 'rgba(15, 23, 42, 0.85)';
+        sprite.borderColor = color;
+        sprite.borderWidth = isTargetA || isTargetB || isBridge || inCycle ? 1.5 : 0.8;
         sprite.borderRadius = 4;
         sprite.padding = 1.8;
         sprite.position.set(0, radius + 4.5, 0);
@@ -278,13 +255,13 @@ export default function GraphViewer3D({
       .nodeLabel(
         (node: any) => `
         <div style="color:white;background:rgba(15,23,42,0.95);padding:8px 14px;border-radius:10px;font-family:system-ui,sans-serif;font-size:12px;border:1px solid ${
-          isCycleNode(node.id, node.name) ? '#ef4444' : node.color || '#3b82f6'
+          node.isTargetA ? '#00f0ff' : node.isTargetB ? '#ff007a' : node.isBridgeNode ? '#ffd700' : isCycleNode(node.id, node.name) ? '#ef4444' : node.color || '#3b82f6'
         };box-shadow:0 8px 24px rgba(0,0,0,0.7);">
           <div style="font-weight:700;font-size:14px;color:${
-            isCycleNode(node.id, node.name) ? '#ef4444' : node.color || '#3b82f6'
+            node.isTargetA ? '#00f0ff' : node.isTargetB ? '#ff007a' : node.isBridgeNode ? '#ffd700' : isCycleNode(node.id, node.name) ? '#ef4444' : node.color || '#3b82f6'
           };">${node.name}</div>
           <div style="text-transform:uppercase;font-size:10px;letter-spacing:0.8px;color:#94a3b8;margin-top:3px;">
-            TYPE: ${node.type} ${isCycleNode(node.id, node.name) ? '• 🔴 ACTIVE CYCLE LOOP NODE' : ''}
+            TYPE: ${node.type} ${node.isBridgeNode ? '• 🌟 SHARED COMMON CONNECTION' : node.isTargetA ? '• 🏢 TARGET A' : node.isTargetB ? '• 🏢 TARGET B' : ''}
           </div>
           ${
             node.description
@@ -294,28 +271,28 @@ export default function GraphViewer3D({
         </div>
       `
       )
-      // Directional Arrows and Links
-      .linkDirectionalArrowLength((link: any) => (isCycleLink(link) ? 6 : 4))
+      .linkDirectionalArrowLength((link: any) => (link.isPathLink || isCycleLink(link) ? 6 : 4))
       .linkDirectionalArrowRelPos(0.95)
-      .linkDirectionalArrowColor((link: any) => (isCycleLink(link) ? '#ef4444' : '#64748b'))
-      .linkDirectionalParticles((link: any) => (isCycleLink(link) ? 8 : 2))
-      .linkDirectionalParticleWidth((link: any) => (isCycleLink(link) ? 2.5 : 1.2))
-      .linkDirectionalParticleSpeed((link: any) => (isCycleLink(link) ? 0.018 : 0.005))
-      .linkDirectionalParticleColor((link: any) => (isCycleLink(link) ? '#f87171' : '#a855f7'))
+      .linkDirectionalArrowColor((link: any) => (link.isPathLink ? '#ffd700' : isCycleLink(link) ? '#ef4444' : '#64748b'))
+      .linkDirectionalParticles((link: any) => (link.isPathLink ? 8 : isCycleLink(link) ? 8 : 2))
+      .linkDirectionalParticleWidth((link: any) => (link.isPathLink ? 2.5 : isCycleLink(link) ? 2.5 : 1.2))
+      .linkDirectionalParticleSpeed((link: any) => (link.isPathLink ? 0.02 : isCycleLink(link) ? 0.018 : 0.005))
+      .linkDirectionalParticleColor((link: any) => (link.isPathLink ? '#ffd700' : isCycleLink(link) ? '#f87171' : '#a855f7'))
       .linkColor((link: any) => {
+        if (link.isPathLink) return 'rgba(255, 215, 0, 0.95)';
         if (isCycleLink(link)) return 'rgba(239, 68, 68, 0.95)';
         if (link.relationship === 'OWNED_BY') return 'rgba(234, 179, 8, 0.45)';
         if (link.relationship === 'SUBSIDIARY_OF') return 'rgba(34, 197, 94, 0.45)';
         return 'rgba(168, 85, 247, 0.45)';
       })
-      .linkWidth((link: any) => (isCycleLink(link) ? 3.0 : 1.2))
+      .linkWidth((link: any) => (link.isPathLink ? 3.0 : isCycleLink(link) ? 3.0 : 1.2))
       .linkLabel(
         (link: any) =>
           `<div style="color:white;background:${
-            isCycleLink(link) ? 'rgba(153,27,27,0.92)' : 'rgba(15,23,42,0.85)'
+            link.isPathLink ? 'rgba(74,52,0,0.92)' : isCycleLink(link) ? 'rgba(153,27,27,0.92)' : 'rgba(15,23,42,0.85)'
           };padding:4px 8px;border-radius:4px;font-size:10px;border:1px solid ${
-            isCycleLink(link) ? '#ef4444' : 'rgba(255,255,255,0.2)'
-          };">${isCycleLink(link) ? '🔴 CLOSED EQUITY LOOP EDGE' : link.label || link.relationship}</div>`
+            link.isPathLink ? '#ffd700' : isCycleLink(link) ? '#ef4444' : 'rgba(255,255,255,0.2)'
+          };">${link.isPathLink ? '🌟 CONNECTION LINK PATH' : link.label || link.relationship}</div>`
       )
       .backgroundColor('#090d16')
       .onNodeClick((node: any) => {
@@ -331,18 +308,11 @@ export default function GraphViewer3D({
         }
       });
 
-    // FIXED STABLE PHYSICS PARAMETERS
     Graph.d3Force('charge', d3.forceManyBody().strength(-35));
     Graph.d3Force('center', (d3 as any).forceCenter(0, 0, 0));
-    Graph.d3Force('radial', (d3 as any).forceRadial(15, 0, 0, 0).strength(0.08));
-    Graph.d3Force(
-      'link',
-      d3.forceLink().distance(32).strength(0.7)
-    );
-    Graph.d3Force(
-      'collide',
-      d3.forceCollide().radius((node: any) => (node.val || 4) + 4)
-    );
+    Graph.d3Force('radial', (d3 as any).forceRadial(20, 0, 0, 0).strength(0.08));
+    Graph.d3Force('link', d3.forceLink().distance(35).strength(0.7));
+    Graph.d3Force('collide', d3.forceCollide().radius((node: any) => (node.val || 4) + 4));
     Graph.d3VelocityDecay(0.25);
     Graph.cooldownTicks(150);
 
@@ -366,12 +336,22 @@ export default function GraphViewer3D({
         Graph._destructor();
       }
     };
-  }, [activeGraphData, onSelectNode, graphRefContainer, cycleNodeIds, isolatedCycleMode]);
+  }, [activeGraphData, onSelectNode, graphRefContainer, cycleNodeIds, isolatedCycleMode, isDualMode]);
 
   return (
     <div className="w-full h-full relative min-h-[500px] touch-none select-none">
-      {/* 3D Viewport Controls & Cycle Mode Overlay Bar */}
-      {cycleNodeIds.size > 0 && (
+      {/* Dual Mode Indicator Banner */}
+      {isDualMode && (
+        <div className="absolute top-4 left-4 z-10 flex items-center space-x-2 bg-slate-900/90 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-yellow-500/40 shadow-xl text-xs">
+          <GitCompare className="w-4 h-4 text-yellow-400 animate-pulse" />
+          <span className="font-bold bg-gradient-to-r from-cyan-400 via-amber-300 to-pink-400 bg-clip-text text-transparent">
+            Dual Company Link Visualizer Active
+          </span>
+        </div>
+      )}
+
+      {/* Cycle Mode Overlay Bar */}
+      {cycleNodeIds.size > 0 && !isDualMode && (
         <div className="absolute top-4 left-4 z-10 flex items-center space-x-2 bg-slate-900/85 backdrop-blur-md p-1.5 rounded-2xl border border-red-500/40 shadow-xl text-xs">
           <div className="flex items-center space-x-1.5 px-2.5 py-1 bg-red-500/20 text-red-400 font-bold rounded-xl border border-red-500/30">
             <Flame className="w-3.5 h-3.5 animate-pulse" />
