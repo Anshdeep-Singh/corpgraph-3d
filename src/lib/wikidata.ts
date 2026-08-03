@@ -5,6 +5,7 @@ const USER_AGENT = 'CorpGraph3D-Forensics/1.0 (Contact: admin@corpgraph.app)';
 
 export interface FetchGraphOptions {
   onToastMessage?: (msg: string) => void;
+  isBranching?: boolean;
 }
 
 // Compact node size constants
@@ -112,7 +113,7 @@ export function isValidCorporateEntityName(name: string): boolean {
 }
 
 // Enrich graph with multi-entity ecosystem circularity and cross-holding patterns
-export function enrichGraphWithSpecializedCycleStructures(graphData: GraphData): GraphData {
+export function enrichGraphWithSpecializedCycleStructures(graphData: GraphData, isBranching: boolean = false): GraphData {
   const companyName = graphData.targetCompany.name;
   const lower = companyName.toLowerCase();
 
@@ -214,8 +215,8 @@ export function enrichGraphWithSpecializedCycleStructures(graphData: GraphData):
     addLink(p2, p3, 'INVESTED_IN', 'Cross-Divisional IP Stake');
     addLink(p3, p4, 'SUBSIDIARY_OF', 'Regional IP Transfer');
     addLink(p4, companyName, 'OWNED_BY', 'IP Royalty Recirculation');
-  } else {
-    // Default multi-node closed loop (5 entities)
+  } else if (!isBranching && nodesMap.size <= 2) {
+    // Only generate fallback demonstration loop if a primary search returned zero corporate relationships from Wikidata
     const p1 = `${companyName} Strategic Capital`;
     const p2 = `${companyName} Offshore Holdings`;
     const p3 = `${companyName} Global IP Trust`;
@@ -241,7 +242,7 @@ export function enrichGraphWithSpecializedCycleStructures(graphData: GraphData):
 }
 
 // --- Tier 1: Wikidata SPARQL Direct Fetch ---
-async function fetchTier1Wikidata(companyQuery: string): Promise<GraphData> {
+async function fetchTier1Wikidata(companyQuery: string, isBranching: boolean = false): Promise<GraphData> {
   const searchUrl = `https://www.wikidata.org/w/api.php?action=wbsearchentities&search=${encodeURIComponent(
     companyQuery
   )}&language=en&format=json&origin=*`;
@@ -396,7 +397,7 @@ async function fetchTier1Wikidata(companyQuery: string): Promise<GraphData> {
     tierMessage: 'Loaded directly via Tier 1: Wikidata SPARQL Endpoint',
   };
 
-  return enrichGraphWithSpecializedCycleStructures(rawGraph);
+  return enrichGraphWithSpecializedCycleStructures(rawGraph, isBranching);
 }
 
 // --- Tier 2: Wikipedia REST API Summary ---
@@ -528,7 +529,7 @@ export async function fetchCorporateGraph(
   };
 
   try {
-    const data = await fetchTier1Wikidata(companyQuery);
+    const data = await fetchTier1Wikidata(companyQuery, options?.isBranching);
     return data;
   } catch (err1: any) {
     console.warn('Tier 1 failed:', err1.message);
@@ -568,7 +569,7 @@ export async function branchCorporateGraph(
   branchEntityName: string,
   options?: FetchGraphOptions
 ): Promise<GraphData> {
-  const newGraph = await fetchCorporateGraph(branchEntityName, options);
+  const newGraph = await fetchCorporateGraph(branchEntityName, { ...options, isBranching: true });
 
   const nodesMap = new Map<string, GraphNode>();
 
