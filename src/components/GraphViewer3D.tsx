@@ -49,6 +49,24 @@ export default function GraphViewer3D({
     }
   });
 
+  // Fallback: Populate cycleNodeIds from graph links tagged with isCycleEdge or nodes tagged with isInCycle
+  if (data?.links) {
+    data.links.forEach((l) => {
+      if (l.isCycleEdge) {
+        cycleNodeIds.add(extractId(l.source));
+        cycleNodeIds.add(extractId(l.target));
+      }
+    });
+  }
+  if (data?.nodes) {
+    data.nodes.forEach((n) => {
+      if (n.isInCycle) {
+        cycleNodeIds.add(String(n.id));
+        if (n.name) cycleNodeIds.add(String(n.name));
+      }
+    });
+  }
+
   // Unique sequence of entities in cycle
   const cleanCycleChain = Array.from(new Set(activeCycleChain));
 

@@ -579,7 +579,40 @@ Detected Cycles: ${JSON.stringify(cycles)}
 Detected Patterns: ${JSON.stringify(detectedPatterns.map((p) => p.title))}
 Agent Findings: ${JSON.stringify(agentSteps.map((s) => s.findings))}`;
 
-      if (config.provider === 'openai' || config.provider === 'openrouter') {
+      if (config.provider === 'gemini') {
+        const geminiModel = config.model && config.model.trim() ? config.model.trim() : 'gemini-2.0-flash';
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${config.apiKey.trim()}`;
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+          }),
+        });
+        if (res.ok) {
+          const json = await res.json();
+          llmSummaryEnhancement = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        }
+      } else if (config.provider === 'anthropic') {
+        const claudeModel = config.model && config.model.trim() ? config.model.trim() : 'claude-3-5-sonnet-20241022';
+        const res = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': config.apiKey.trim(),
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model: claudeModel,
+            max_tokens: 300,
+            messages: [{ role: 'user', content: prompt }],
+          }),
+        });
+        if (res.ok) {
+          const json = await res.json();
+          llmSummaryEnhancement = json.content?.[0]?.text || '';
+        }
+      } else if (config.provider === 'openai' || config.provider === 'openrouter') {
         const endpoint = config.provider === 'openrouter'
           ? 'https://openrouter.ai/api/v1/chat/completions'
           : 'https://api.openai.com/v1/chat/completions';
