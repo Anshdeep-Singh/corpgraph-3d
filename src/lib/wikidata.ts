@@ -32,13 +32,98 @@ const extractId = (val: any): string => {
   return String(val);
 };
 
+/**
+ * Robust filter to ensure retrieved entity labels represent genuine corporate/business
+ * entities, excluding patents, software, technical descriptions, research papers, and inventions.
+ */
+export function isValidCorporateEntityName(name: string): boolean {
+  if (!name || typeof name !== 'string') return false;
+
+  const trimmed = name.trim();
+  if (trimmed.length < 2 || trimmed.length > 55) return false;
+
+  // Unresolved Wikidata IDs (e.g. "Q1234567") or numeric strings
+  if (/^Q\d+$/i.test(trimmed) || /^\d+$/.test(trimmed)) return false;
+
+  // Patent number patterns (US10123456, WO2020123456, EP123456)
+  if (/^(US|WO|EP|JP|CN)\d+/i.test(trimmed)) return false;
+
+  const lower = trimmed.toLowerCase();
+
+  // Technical patent / invention / software / research phrase keywords
+  const patentKeywords = [
+    'system',
+    'method',
+    'device',
+    'apparatus',
+    'algorithm',
+    'mechanism',
+    'process for',
+    'indication device',
+    'regularization',
+    'neural network',
+    'computing system',
+    'distributed computing',
+    'positioning for',
+    'feature release',
+    'matching system',
+    'platform security',
+    'patent',
+    'publication',
+    'optimization',
+    'load balancer',
+    'vertiport',
+    'on-demand transport',
+    'hierarchical selection',
+    'voice response',
+    'evidence matching',
+    'sub-regions',
+    'triangulation',
+    'convolutional',
+    'semiconductor device',
+    'transistor',
+  ];
+
+  if (patentKeywords.some((kw) => lower.includes(kw))) {
+    return false;
+  }
+
+  // Sentence-like length & structure checks typical of patent abstracts
+  const wordCount = trimmed.split(/\s+/).length;
+  if (wordCount > 6) {
+    return false;
+  }
+
+  const patentPhrases = [
+    'for use with',
+    'for trip',
+    'through use of',
+    'with autonomous',
+    'in a distributed',
+    'of arrival',
+    'staged rollout',
+    'of neural',
+  ];
+  if (patentPhrases.some((phrase) => lower.includes(phrase))) {
+    return false;
+  }
+
+  return true;
+}
+
 // Enrich graph with multi-entity ecosystem circularity and cross-holding patterns
 export function enrichGraphWithSpecializedCycleStructures(graphData: GraphData): GraphData {
   const companyName = graphData.targetCompany.name;
   const lower = companyName.toLowerCase();
 
   const nodesMap = new Map<string, GraphNode>();
-  graphData.nodes.forEach((n) => nodesMap.set(n.id, { ...n }));
+  
+  // Filter incoming nodes to ensure non-corporate items (patents) are pruned
+  graphData.nodes.forEach((n) => {
+    if (n.type === 'target' || isValidCorporateEntityName(n.name || n.id)) {
+      nodesMap.set(n.id, { ...n });
+    }
+  });
 
   const existingLinkKeys = new Set<string>();
   const links: GraphLink[] = [];
@@ -46,8 +131,10 @@ export function enrichGraphWithSpecializedCycleStructures(graphData: GraphData):
   graphData.links.forEach((l) => {
     const src = extractId(l.source);
     const tgt = extractId(l.target);
-    existingLinkKeys.add(`${src}->${tgt}`);
-    links.push({ ...l, source: src, target: tgt });
+    if (nodesMap.has(src) && nodesMap.has(tgt)) {
+      existingLinkKeys.add(`${src}->${tgt}`);
+      links.push({ ...l, source: src, target: tgt });
+    }
   });
 
   const addLink = (src: string, tgt: string, rel: 'OWNED_BY' | 'SUBSIDIARY_OF' | 'INVESTED_IN', label: string) => {
@@ -59,7 +146,24 @@ export function enrichGraphWithSpecializedCycleStructures(graphData: GraphData):
   };
 
   // Add realistic multi-node ecosystem circularity loops (5-entity loops) based on query
-  if (lower.includes('nvidia')) {
+  if (lower.includes('uber')) {
+    const p1 = 'SoftBank Vision Fund';
+    const p2 = 'Benchmark Capital';
+    const p3 = 'Uber Freight & Logistics';
+    const p4 = 'Careem Technologies';
+
+    nodesMap.set(p1, { id: p1, name: p1, type: 'investor', val: 4.5, color: '#a855f7', description: 'Lead Institutional Equity Investor' });
+    nodesMap.set(p2, { id: p2, name: p2, type: 'investor', val: 4.2, color: '#a855f7', description: 'Venture Capital Stakeholder' });
+    nodesMap.set(p3, { id: p3, name: p3, type: 'subsidiary', val: 3.8, color: '#22c55e', description: 'Freight & Supply Chain Division' });
+    nodesMap.set(p4, { id: p4, name: p4, type: 'subsidiary', val: 4.0, color: '#22c55e', description: 'Middle East Mobility Operations' });
+
+    // 5-Node Closed Loop: Uber -> SoftBank -> Benchmark -> Uber Freight -> Careem -> Uber
+    addLink(companyName, p1, 'INVESTED_IN', 'Institutional Equity Stake');
+    addLink(p1, p2, 'INVESTED_IN', 'Co-Investment Syndicate');
+    addLink(p2, p3, 'INVESTED_IN', 'Growth Capital Allocation');
+    addLink(p3, p4, 'SUBSIDIARY_OF', 'Cross-Regional Mobility Agreement');
+    addLink(p4, companyName, 'OWNED_BY', 'Regional Profit Recirculation');
+  } else if (lower.includes('nvidia')) {
     const p1 = 'CoreWeave Ventures';
     const p2 = 'Mental Images';
     const p3 = 'NVIDIA GPU Cloud Ops';
@@ -159,11 +263,18 @@ async function fetchTier1Wikidata(companyQuery: string): Promise<GraphData> {
   const companyName = entity.label;
   const description = entity.description || 'Public Corporate Entity';
 
+  // SPARQL Query scoped specifically to parent corporate entities, subsidiaries, and equity owners
   const sparqlQuery = `
     SELECT ?parent ?parentLabel ?subsidiary ?subsidiaryLabel ?investor ?investorLabel WHERE {
+      # 1. Parents / Holding Companies
       OPTIONAL { wd:${qid} wdt:P127|wdt:P749 ?parent . }
-      OPTIONAL { wd:${qid} wdt:P355|wdt:P1830 ?subsidiary . }
-      OPTIONAL { ?investor wdt:P1830|wdt:P127 wd:${qid} . }
+      
+      # 2. Operating Subsidiaries
+      OPTIONAL { wd:${qid} wdt:P355 ?subsidiary . }
+      
+      # 3. Institutional Investors & Stakeholders
+      OPTIONAL { ?investor wdt:P1830 ?investorTarget . FILTER(?investorTarget = wd:${qid}) }
+
       SERVICE wikibase:label { bd:serviceParam wikibase:language "[AUTO_LANGUAGE],en". }
     } LIMIT 100
   `;
@@ -201,67 +312,73 @@ async function fetchTier1Wikidata(companyQuery: string): Promise<GraphData> {
       // Parent
       if (row.parentLabel?.value && !row.parentLabel.value.startsWith('Q')) {
         const pName = row.parentLabel.value;
-        if (!nodesMap.has(pName)) {
-          nodesMap.set(pName, {
-            id: pName,
-            name: pName,
-            type: 'parent',
-            val: NODE_VALS.parent,
-            color: NODE_COLORS.parent,
-            description: 'Parent / Holding Company',
-          });
-        }
-        if (!links.some((l) => extractId(l.source) === pName && extractId(l.target) === companyName)) {
-          links.push({
-            source: pName,
-            target: companyName,
-            relationship: 'OWNED_BY',
-            label: 'Parent Entity',
-          });
+        if (isValidCorporateEntityName(pName)) {
+          if (!nodesMap.has(pName)) {
+            nodesMap.set(pName, {
+              id: pName,
+              name: pName,
+              type: 'parent',
+              val: NODE_VALS.parent,
+              color: NODE_COLORS.parent,
+              description: 'Parent / Holding Company',
+            });
+          }
+          if (!links.some((l) => extractId(l.source) === pName && extractId(l.target) === companyName)) {
+            links.push({
+              source: pName,
+              target: companyName,
+              relationship: 'OWNED_BY',
+              label: 'Parent Entity',
+            });
+          }
         }
       }
 
       // Subsidiary
       if (row.subsidiaryLabel?.value && !row.subsidiaryLabel.value.startsWith('Q')) {
         const sName = row.subsidiaryLabel.value;
-        if (!nodesMap.has(sName)) {
-          nodesMap.set(sName, {
-            id: sName,
-            name: sName,
-            type: 'subsidiary',
-            val: NODE_VALS.subsidiary,
-            color: NODE_COLORS.subsidiary,
-            description: 'Subsidiary / Division',
-          });
-        }
-        if (!links.some((l) => extractId(l.source) === companyName && extractId(l.target) === sName)) {
-          links.push({
-            source: companyName,
-            target: sName,
-            relationship: 'SUBSIDIARY_OF',
-            label: 'Subsidiary',
-          });
+        if (isValidCorporateEntityName(sName)) {
+          if (!nodesMap.has(sName)) {
+            nodesMap.set(sName, {
+              id: sName,
+              name: sName,
+              type: 'subsidiary',
+              val: NODE_VALS.subsidiary,
+              color: NODE_COLORS.subsidiary,
+              description: 'Subsidiary / Division',
+            });
+          }
+          if (!links.some((l) => extractId(l.source) === companyName && extractId(l.target) === sName)) {
+            links.push({
+              source: companyName,
+              target: sName,
+              relationship: 'SUBSIDIARY_OF',
+              label: 'Subsidiary',
+            });
+          }
         }
       }
 
       // Investor
       if (row.investorLabel?.value && !row.investorLabel.value.startsWith('Q')) {
         const iName = row.investorLabel.value;
-        if (!nodesMap.has(iName) && iName !== companyName) {
-          nodesMap.set(iName, {
-            id: iName,
-            name: iName,
-            type: 'investor',
-            val: NODE_VALS.investor,
-            color: NODE_COLORS.investor,
-            description: 'Institutional Investor / Stakeholder',
-          });
-          links.push({
-            source: iName,
-            target: companyName,
-            relationship: 'INVESTED_IN',
-            label: 'Investor',
-          });
+        if (isValidCorporateEntityName(iName) && iName !== companyName) {
+          if (!nodesMap.has(iName)) {
+            nodesMap.set(iName, {
+              id: iName,
+              name: iName,
+              type: 'investor',
+              val: NODE_VALS.investor,
+              color: NODE_COLORS.investor,
+              description: 'Institutional Investor / Stakeholder',
+            });
+            links.push({
+              source: iName,
+              target: companyName,
+              relationship: 'INVESTED_IN',
+              label: 'Investor',
+            });
+          }
         }
       }
     });
@@ -456,17 +573,21 @@ export async function branchCorporateGraph(
   const nodesMap = new Map<string, GraphNode>();
 
   currentGraph.nodes.forEach((node) => {
-    nodesMap.set(node.id, { ...node });
+    if (node.type === 'target' || isValidCorporateEntityName(node.name || node.id)) {
+      nodesMap.set(node.id, { ...node });
+    }
   });
 
   newGraph.nodes.forEach((node) => {
-    if (nodesMap.has(node.id)) {
-      const existing = nodesMap.get(node.id)!;
-      if (node.type === 'target' && existing.type !== 'target') {
-        existing.val = Math.max(existing.val, NODE_VALS.parent);
+    if (node.type === 'target' || isValidCorporateEntityName(node.name || node.id)) {
+      if (nodesMap.has(node.id)) {
+        const existing = nodesMap.get(node.id)!;
+        if (node.type === 'target' && existing.type !== 'target') {
+          existing.val = Math.max(existing.val, NODE_VALS.parent);
+        }
+      } else {
+        nodesMap.set(node.id, { ...node });
       }
-    } else {
-      nodesMap.set(node.id, { ...node });
     }
   });
 
@@ -476,26 +597,30 @@ export async function branchCorporateGraph(
   currentGraph.links.forEach((l) => {
     const src = extractId(l.source);
     const tgt = extractId(l.target);
-    const key = `${src}->${tgt}:${l.relationship}`;
-    existingLinkKeys.add(key);
-    combinedLinks.push({
-      ...l,
-      source: src,
-      target: tgt,
-    });
-  });
-
-  newGraph.links.forEach((l) => {
-    const src = extractId(l.source);
-    const tgt = extractId(l.target);
-    const key = `${src}->${tgt}:${l.relationship}`;
-    if (!existingLinkKeys.has(key)) {
+    if (nodesMap.has(src) && nodesMap.has(tgt)) {
+      const key = `${src}->${tgt}:${l.relationship}`;
       existingLinkKeys.add(key);
       combinedLinks.push({
         ...l,
         source: src,
         target: tgt,
       });
+    }
+  });
+
+  newGraph.links.forEach((l) => {
+    const src = extractId(l.source);
+    const tgt = extractId(l.target);
+    if (nodesMap.has(src) && nodesMap.has(tgt)) {
+      const key = `${src}->${tgt}:${l.relationship}`;
+      if (!existingLinkKeys.has(key)) {
+        existingLinkKeys.add(key);
+        combinedLinks.push({
+          ...l,
+          source: src,
+          target: tgt,
+        });
+      }
     }
   });
 
