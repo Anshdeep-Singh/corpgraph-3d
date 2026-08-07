@@ -84,8 +84,8 @@ export default function PriceChartPane({ symbol }: PriceChartPaneProps) {
     const candleData = ohlcData.map((d) => ({
       time: d.time,
       open: d.open,
-      high: d.high,
-      low: d.low,
+      high: Math.max(d.high, d.open, d.close),
+      low: Math.min(d.low, d.open, d.close),
       close: d.close,
     }));
 

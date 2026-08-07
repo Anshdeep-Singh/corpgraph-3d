@@ -51,6 +51,9 @@ export async function fetchStockQuote(symbol: string): Promise<StockQuote> {
 
   const change = parseFloat(((Math.random() * 4 - 1.8) * (meta.price / 100)).toFixed(2));
   const changePercent = parseFloat(((change / meta.price) * 100).toFixed(2));
+  const open = parseFloat((meta.price - change * 0.4).toFixed(2));
+  const high = parseFloat((Math.max(open, meta.price) + Math.abs(change) * 0.5 + 0.5).toFixed(2));
+  const low = parseFloat((Math.min(open, meta.price) - Math.abs(change) * 0.5 - 0.5).toFixed(2));
 
   return {
     symbol: sym,
@@ -58,9 +61,9 @@ export async function fetchStockQuote(symbol: string): Promise<StockQuote> {
     price: meta.price,
     change,
     changePercent,
-    open: parseFloat((meta.price - change * 0.4).toFixed(2)),
-    high: parseFloat((meta.price + Math.abs(change) * 1.2 + 1.5).toFixed(2)),
-    low: parseFloat((meta.price - Math.abs(change) * 1.1 - 1.2).toFixed(2)),
+    open,
+    high,
+    low,
     volume: Math.round(35000000 + Math.random() * 20000000),
     avgVolume: 42000000,
     marketCap: meta.mcap,
@@ -78,35 +81,78 @@ export async function fetchHistoricalOHLCV(
   days: number = 250
 ): Promise<OHLCVDataPoint[]> {
   const quote = await fetchStockQuote(symbol);
+
+  // Generate trading days backward from today
+  const tradingDates: string[] = [];
+  const curr = new Date();
+  while (tradingDates.length < days) {
+    const dayOfWeek = curr.getDay();
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) { // Skip weekends
+      tradingDates.push(curr.toISOString().split('T')[0]);
+    }
+    curr.setDate(curr.getDate() - 1);
+  }
+  // Reverse tradingDates so index 0 is oldest, last index (days-1) is today
+  tradingDates.reverse();
+
+  // Generate OHLC data backward from quote.price (today)
+  const volatility = quote.price * 0.015;
+  const reversedOHLC: { open: number; high: number; low: number; close: number; volume: number }[] = [];
+
+  // Today's candle (index days-1)
+  let currentClose = quote.price;
+  let currentOpen = quote.open;
+  let currentHigh = Math.max(quote.high, currentClose, currentOpen);
+  let currentLow = Math.min(quote.low, currentClose, currentOpen);
+  let currentVol = quote.volume;
+
+  reversedOHLC.push({
+    open: currentOpen,
+    high: currentHigh,
+    low: currentLow,
+    close: currentClose,
+    volume: currentVol,
+  });
+
+  // Previous days working backward
+  for (let i = 1; i < days; i++) {
+    // Prev day close is near current day open (allowing slight overnight gap)
+    const gap = (Math.random() - 0.5) * (volatility * 0.2);
+    const prevClose = parseFloat((currentOpen - gap).toFixed(2));
+
+    const change = (Math.random() - 0.49) * volatility;
+    const prevOpen = parseFloat(Math.max(5, prevClose - change).toFixed(2));
+
+    const rawHigh = Math.max(prevOpen, prevClose) + Math.random() * (volatility * 0.6);
+    const rawLow = Math.min(prevOpen, prevClose) - Math.random() * (volatility * 0.6);
+
+    const prevHigh = parseFloat(Math.max(rawHigh, prevOpen, prevClose).toFixed(2));
+    const prevLow = parseFloat(Math.min(Math.max(1, rawLow), prevOpen, prevClose).toFixed(2));
+    const prevVol = Math.round(20000000 + Math.random() * 40000000);
+
+    reversedOHLC.push({
+      open: prevOpen,
+      high: prevHigh,
+      low: prevLow,
+      close: prevClose,
+      volume: prevVol,
+    });
+
+    currentOpen = prevOpen;
+    currentClose = prevClose;
+  }
+
+  // Reverse back to chronological order (oldest -> newest)
+  reversedOHLC.reverse();
+
+  // Assemble dataPoints with dates and SMAs
   const dataPoints: OHLCVDataPoint[] = [];
-
-  const startDate = new Date();
-  startDate.setDate(startDate.getDate() - days * 1.5); // Account for weekends
-
-  let currentPrice = quote.price * 0.72; // Start 250 days ago at ~72% price
-  const volatility = quote.price * 0.018;
-
-  let dayCount = 0;
   const rawPrices: number[] = [];
 
-  for (let d = new Date(startDate); dayCount < days; d.setDate(d.getDate() + 1)) {
-    const dayOfWeek = d.getDay();
-    if (dayOfWeek === 0 || dayOfWeek === 6) continue; // Skip weekends
+  for (let i = 0; i < days; i++) {
+    const item = reversedOHLC[i];
+    rawPrices.push(item.close);
 
-    const dateStr = d.toISOString().split('T')[0];
-
-    const change = (Math.random() - 0.48) * volatility;
-    currentPrice = Math.max(10, currentPrice + change);
-
-    const open = parseFloat((currentPrice - (Math.random() - 0.5) * (volatility * 0.5)).toFixed(2));
-    const high = parseFloat((Math.max(open, currentPrice) + Math.random() * (volatility * 0.8)).toFixed(2));
-    const low = parseFloat((Math.min(open, currentPrice) - Math.random() * (volatility * 0.8)).toFixed(2));
-    const close = parseFloat(currentPrice.toFixed(2));
-    const volume = Math.round(20000000 + Math.random() * 40000000);
-
-    rawPrices.push(close);
-
-    // Calculate SMAs
     const calculateSMA = (period: number) => {
       if (rawPrices.length < period) return undefined;
       const slice = rawPrices.slice(rawPrices.length - period);
@@ -115,24 +161,18 @@ export async function fetchHistoricalOHLCV(
     };
 
     dataPoints.push({
-      time: dateStr,
-      open,
-      high,
-      low,
-      close,
-      volume,
+      time: tradingDates[i],
+      open: item.open,
+      high: item.high,
+      low: item.low,
+      close: item.close,
+      volume: item.volume,
       sma20: calculateSMA(20),
       sma50: calculateSMA(50),
       sma200: calculateSMA(200),
     });
-
-    dayCount++;
-  }
-
-  // Ensure last candle matches quote price approximately
-  if (dataPoints.length > 0) {
-    dataPoints[dataPoints.length - 1].close = quote.price;
   }
 
   return dataPoints;
 }
+
