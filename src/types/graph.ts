@@ -7,6 +7,7 @@ export interface GraphNode {
   description?: string;
   country?: string;
   inceptionYear?: string;
+  wikidataId?: string;
   isFlagged?: boolean;
   isInCycle?: boolean;
   riskScore?: number;
