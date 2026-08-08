@@ -41,9 +41,12 @@ export default function PriceChartPane({ symbol }: PriceChartPaneProps) {
 
     chartContainerRef.current.innerHTML = '';
 
+    const width = chartContainerRef.current.clientWidth || 600;
+    const height = chartContainerRef.current.clientHeight || 350;
+
     const chart = createChart(chartContainerRef.current, {
-      width: chartContainerRef.current.clientWidth || 600,
-      height: chartContainerRef.current.clientHeight || 350,
+      width,
+      height,
       layout: {
         background: { type: ColorType.Solid, color: '#090b11' },
         textColor: '#94a3b8',
@@ -142,21 +145,21 @@ export default function PriceChartPane({ symbol }: PriceChartPaneProps) {
 
     sma20Series.setData(sma20Data as any);
 
+    chart.timeScale().fitContent();
     chartInstanceRef.current = chart;
 
-    const handleResize = () => {
-      if (chartContainerRef.current && chart) {
-        chart.applyOptions({
-          width: chartContainerRef.current.clientWidth,
-          height: chartContainerRef.current.clientHeight,
-        });
+    const resizeObserver = new ResizeObserver((entries) => {
+      if (!entries[0] || !chart) return;
+      const { width: newW, height: newH } = entries[0].contentRect;
+      if (newW > 0 && newH > 0) {
+        chart.applyOptions({ width: newW, height: newH });
       }
-    };
+    });
 
-    window.addEventListener('resize', handleResize);
+    resizeObserver.observe(chartContainerRef.current);
 
     return () => {
-      window.removeEventListener('resize', handleResize);
+      resizeObserver.disconnect();
       chart.remove();
     };
   }, [loading, ohlcData]);
@@ -204,7 +207,7 @@ export default function PriceChartPane({ symbol }: PriceChartPaneProps) {
       )}
 
       {/* Lightweight Charts Canvas Container */}
-      <div ref={chartContainerRef} className="flex-1 w-full h-full relative" />
+      <div ref={chartContainerRef} className="flex-1 w-full h-full relative min-h-[250px]" />
     </div>
   );
 }
