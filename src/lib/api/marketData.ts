@@ -27,152 +27,168 @@ export interface OHLCVDataPoint {
   sma200?: number;
 }
 
+const YAHOO_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+};
+
+/**
+ * Fetch Real-time Stock Quote via Yahoo Finance API
+ */
 export async function fetchStockQuote(symbol: string): Promise<StockQuote> {
-  const sym = symbol.toUpperCase();
-  
-  // Base parameters for realistic quote lookup
-  const basePrices: Record<string, { price: number; name: string; mcap: number; pe: number }> = {
-    AAPL: { price: 232.5, name: 'Apple Inc.', mcap: 3520000000000, pe: 34.2 },
-    NVDA: { price: 128.4, name: 'NVIDIA Corporation', mcap: 3150000000000, pe: 58.1 },
-    TSLA: { price: 215.8, name: 'Tesla, Inc.', mcap: 688000000000, pe: 62.4 },
-    MSFT: { price: 442.1, name: 'Microsoft Corporation', mcap: 3280000000000, pe: 36.8 },
-    GOOGL: { price: 178.2, name: 'Alphabet Inc.', mcap: 2210000000000, pe: 25.4 },
-    GOOG: { price: 179.1, name: 'Alphabet Inc.', mcap: 2210000000000, pe: 25.5 },
-    AMZN: { price: 186.3, name: 'Amazon.com Inc.', mcap: 1940000000000, pe: 41.2 },
-    META: { price: 512.6, name: 'Meta Platforms, Inc.', mcap: 1300000000000, pe: 27.9 },
-  };
+  const sym = symbol.trim().toUpperCase();
 
-  const meta = basePrices[sym] || {
-    price: 150.0,
-    name: `${sym} Inc.`,
-    mcap: 500000000000,
-    pe: 28.5,
-  };
+  try {
+    const url = `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?range=1mo&interval=1d`;
+    const res = await fetch(url, { headers: YAHOO_HEADERS, next: { revalidate: 60 } });
 
-  const change = parseFloat(((Math.random() * 4 - 1.8) * (meta.price / 100)).toFixed(2));
-  const changePercent = parseFloat(((change / meta.price) * 100).toFixed(2));
-  const open = parseFloat((meta.price - change * 0.4).toFixed(2));
-  const high = parseFloat((Math.max(open, meta.price) + Math.abs(change) * 0.5 + 0.5).toFixed(2));
-  const low = parseFloat((Math.min(open, meta.price) - Math.abs(change) * 0.5 - 0.5).toFixed(2));
+    if (!res.ok) {
+      throw new Error(`Yahoo Finance quote request failed with status ${res.status}`);
+    }
 
-  return {
-    symbol: sym,
-    name: meta.name,
-    price: meta.price,
-    change,
-    changePercent,
-    open,
-    high,
-    low,
-    volume: Math.round(35000000 + Math.random() * 20000000),
-    avgVolume: 42000000,
-    marketCap: meta.mcap,
-    peRatio: meta.pe,
-    fiftyTwoWeekHigh: parseFloat((meta.price * 1.18).toFixed(2)),
-    fiftyTwoWeekLow: parseFloat((meta.price * 0.75).toFixed(2)),
-  };
+    const data = await res.json();
+    const result = data?.chart?.result?.[0];
+
+    if (!result || !result.meta) {
+      throw new Error(`No chart result found for symbol ${sym}`);
+    }
+
+    const meta = result.meta;
+    const quoteObj = result.indicators?.quote?.[0] || {};
+    const closes: (number | null)[] = quoteObj.close || [];
+    const validCloses = closes.filter((c): c is number => typeof c === 'number' && !isNaN(c));
+
+    const price = meta.regularMarketPrice ?? (validCloses.length > 0 ? validCloses[validCloses.length - 1] : 150.0);
+    const prevClose = meta.chartPreviousClose ?? meta.previousClose ?? (validCloses.length > 1 ? validCloses[validCloses.length - 2] : price);
+    const change = parseFloat((price - prevClose).toFixed(2));
+    const changePercent = prevClose ? parseFloat(((change / prevClose) * 100).toFixed(2)) : 0;
+
+    const opens: (number | null)[] = quoteObj.open || [];
+    const highs: (number | null)[] = quoteObj.high || [];
+    const lows: (number | null)[] = quoteObj.low || [];
+    const volumes: (number | null)[] = quoteObj.volume || [];
+
+    const open = meta.regularMarketDayOpen ?? (opens.length > 0 && opens[opens.length - 1] !== null ? opens[opens.length - 1]! : price);
+    const high = meta.regularMarketDayHigh ?? (highs.length > 0 && highs[highs.length - 1] !== null ? highs[highs.length - 1]! : Math.max(open, price));
+    const low = meta.regularMarketDayLow ?? (lows.length > 0 && lows[lows.length - 1] !== null ? lows[lows.length - 1]! : Math.min(open, price));
+    const volume = meta.regularMarketVolume ?? (volumes.length > 0 && volumes[volumes.length - 1] !== null ? volumes[volumes.length - 1]! : 35000000);
+
+    const fiftyTwoWeekHigh = meta.fiftyTwoWeekHigh ?? parseFloat((price * 1.15).toFixed(2));
+    const fiftyTwoWeekLow = meta.fiftyTwoWeekLow ?? parseFloat((price * 0.75).toFixed(2));
+
+    return {
+      symbol: sym,
+      name: meta.shortName || meta.longName || `${sym} Inc.`,
+      price: parseFloat(price.toFixed(2)),
+      change,
+      changePercent,
+      open: parseFloat(open.toFixed(2)),
+      high: parseFloat(high.toFixed(2)),
+      low: parseFloat(low.toFixed(2)),
+      volume: Math.round(volume),
+      avgVolume: Math.round(volume * 1.1),
+      marketCap: meta.marketCap || 500000000000,
+      peRatio: meta.trailingPE ? parseFloat(meta.trailingPE.toFixed(1)) : 28.5,
+      fiftyTwoWeekHigh: parseFloat(fiftyTwoWeekHigh.toFixed(2)),
+      fiftyTwoWeekLow: parseFloat(fiftyTwoWeekLow.toFixed(2)),
+    };
+  } catch (err) {
+    console.warn(`Yahoo Finance quote fallback for ${sym}:`, err);
+    return {
+      symbol: sym,
+      name: `${sym} Corporation`,
+      price: 150.0,
+      change: 0.0,
+      changePercent: 0.0,
+      open: 150.0,
+      high: 152.0,
+      low: 148.0,
+      volume: 25000000,
+      avgVolume: 30000000,
+      marketCap: 250000000000,
+      peRatio: 25.0,
+      fiftyTwoWeekHigh: 175.0,
+      fiftyTwoWeekLow: 120.0,
+    };
+  }
 }
 
 /**
- * Generate/Fetch Historical OHLCV Daily Data with SMA Indicators
+ * Fetch Historical OHLCV Daily Data with Real Technical SMA Indicators
  */
 export async function fetchHistoricalOHLCV(
   symbol: string,
   days: number = 250
 ): Promise<OHLCVDataPoint[]> {
-  const quote = await fetchStockQuote(symbol);
+  const sym = symbol.trim().toUpperCase();
+  const range = days > 180 ? '1y' : days > 60 ? '6mo' : '1mo';
 
-  // Generate trading days backward from today
-  const tradingDates: string[] = [];
-  const curr = new Date();
-  while (tradingDates.length < days) {
-    const dayOfWeek = curr.getDay();
-    if (dayOfWeek !== 0 && dayOfWeek !== 6) { // Skip weekends
-      tradingDates.push(curr.toISOString().split('T')[0]);
+  try {
+    const url = `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?range=${range}&interval=1d`;
+    const res = await fetch(url, { headers: YAHOO_HEADERS, next: { revalidate: 300 } });
+
+    if (!res.ok) {
+      throw new Error(`Yahoo Finance OHLCV request failed with status ${res.status}`);
     }
-    curr.setDate(curr.getDate() - 1);
-  }
-  // Reverse tradingDates so index 0 is oldest, last index (days-1) is today
-  tradingDates.reverse();
 
-  // Generate OHLC data backward from quote.price (today)
-  const volatility = quote.price * 0.015;
-  const reversedOHLC: { open: number; high: number; low: number; close: number; volume: number }[] = [];
+    const data = await res.json();
+    const result = data?.chart?.result?.[0];
 
-  // Today's candle (index days-1)
-  let currentClose = quote.price;
-  let currentOpen = quote.open;
-  let currentHigh = Math.max(quote.high, currentClose, currentOpen);
-  let currentLow = Math.min(quote.low, currentClose, currentOpen);
-  let currentVol = quote.volume;
+    if (!result || !result.timestamp || !result.indicators?.quote?.[0]) {
+      throw new Error(`Invalid OHLCV payload for ${sym}`);
+    }
 
-  reversedOHLC.push({
-    open: currentOpen,
-    high: currentHigh,
-    low: currentLow,
-    close: currentClose,
-    volume: currentVol,
-  });
+    const timestamps: number[] = result.timestamp;
+    const quoteObj = result.indicators.quote[0];
+    const opens: (number | null)[] = quoteObj.open || [];
+    const highs: (number | null)[] = quoteObj.high || [];
+    const lows: (number | null)[] = quoteObj.low || [];
+    const closes: (number | null)[] = quoteObj.close || [];
+    const volumes: (number | null)[] = quoteObj.volume || [];
 
-  // Previous days working backward
-  for (let i = 1; i < days; i++) {
-    // Prev day close is near current day open (allowing slight overnight gap)
-    const gap = (Math.random() - 0.5) * (volatility * 0.2);
-    const prevClose = parseFloat((currentOpen - gap).toFixed(2));
+    const rawPoints: { time: string; open: number; high: number; low: number; close: number; volume: number }[] = [];
 
-    const change = (Math.random() - 0.49) * volatility;
-    const prevOpen = parseFloat(Math.max(5, prevClose - change).toFixed(2));
+    for (let i = 0; i < timestamps.length; i++) {
+      const c = closes[i];
+      if (c === null || c === undefined || isNaN(c)) continue;
 
-    const rawHigh = Math.max(prevOpen, prevClose) + Math.random() * (volatility * 0.6);
-    const rawLow = Math.min(prevOpen, prevClose) - Math.random() * (volatility * 0.6);
+      const dateStr = new Date(timestamps[i] * 1000).toISOString().split('T')[0];
+      const o = opens[i] ?? c;
+      const h = highs[i] ?? Math.max(o, c);
+      const l = lows[i] ?? Math.min(o, c);
+      const v = volumes[i] ?? 0;
 
-    const prevHigh = parseFloat(Math.max(rawHigh, prevOpen, prevClose).toFixed(2));
-    const prevLow = parseFloat(Math.min(Math.max(1, rawLow), prevOpen, prevClose).toFixed(2));
-    const prevVol = Math.round(20000000 + Math.random() * 40000000);
+      rawPoints.push({
+        time: dateStr,
+        open: parseFloat(o.toFixed(2)),
+        high: parseFloat(h.toFixed(2)),
+        low: parseFloat(l.toFixed(2)),
+        close: parseFloat(c.toFixed(2)),
+        volume: Math.round(v),
+      });
+    }
 
-    reversedOHLC.push({
-      open: prevOpen,
-      high: prevHigh,
-      low: prevLow,
-      close: prevClose,
-      volume: prevVol,
-    });
+    // Compute SMAs on chronological closes
+    const closePrices = rawPoints.map((p) => p.close);
 
-    currentOpen = prevOpen;
-    currentClose = prevClose;
-  }
-
-  // Reverse back to chronological order (oldest -> newest)
-  reversedOHLC.reverse();
-
-  // Assemble dataPoints with dates and SMAs
-  const dataPoints: OHLCVDataPoint[] = [];
-  const rawPrices: number[] = [];
-
-  for (let i = 0; i < days; i++) {
-    const item = reversedOHLC[i];
-    rawPrices.push(item.close);
-
-    const calculateSMA = (period: number) => {
-      if (rawPrices.length < period) return undefined;
-      const slice = rawPrices.slice(rawPrices.length - period);
-      const sum = slice.reduce((a, b) => a + b, 0);
+    const calculateSMA = (index: number, period: number): number | undefined => {
+      if (index < period - 1) return undefined;
+      let sum = 0;
+      for (let k = index - period + 1; k <= index; k++) {
+        sum += closePrices[k];
+      }
       return parseFloat((sum / period).toFixed(2));
     };
 
-    dataPoints.push({
-      time: tradingDates[i],
-      open: item.open,
-      high: item.high,
-      low: item.low,
-      close: item.close,
-      volume: item.volume,
-      sma20: calculateSMA(20),
-      sma50: calculateSMA(50),
-      sma200: calculateSMA(200),
-    });
+    const dataPoints: OHLCVDataPoint[] = rawPoints.map((pt, idx) => ({
+      ...pt,
+      sma20: calculateSMA(idx, 20),
+      sma50: calculateSMA(idx, 50),
+      sma200: calculateSMA(idx, 200),
+    }));
+
+    return dataPoints.slice(-days);
+  } catch (err) {
+    console.warn(`Yahoo Finance OHLCV fetch error for ${sym}:`, err);
+    return [];
   }
-
-  return dataPoints;
 }
-

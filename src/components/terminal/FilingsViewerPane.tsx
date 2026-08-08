@@ -110,12 +110,12 @@ export default function FilingsViewerPane({ symbol }: FilingsViewerPaneProps) {
                 <td className="p-2.5 text-slate-400 font-mono text-[10px]">{f.accessionNumber}</td>
                 <td className="p-2.5 text-right">
                   <a
-                    href={`https://www.sec.gov/edgar/browse/?CIK=${symbol}`}
+                    href={f.filingUrl || `https://www.sec.gov/edgar/browse/?CIK=${symbol}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center space-x-1 px-2 py-0.5 bg-[#181e2e] hover:bg-[#222a40] text-amber-300 hover:text-amber-200 rounded border border-[#2b344c] text-[10px] font-bold transition-colors"
                   >
-                    <span>SEC</span>
+                    <span>VIEW SEC</span>
                     <ExternalLink className="w-3 h-3" />
                   </a>
                 </td>
